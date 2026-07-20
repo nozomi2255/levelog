@@ -27,6 +27,13 @@ if (releaseConfig.bundle?.macOS?.signingIdentity !== "-") {
 if (!releaseWorkflow.includes('bundle_dir="$GITHUB_WORKSPACE/src-tauri/target/')) {
   failures.push("Release署名検証へ渡すartifact pathがGITHUB_WORKSPACE基準の絶対パスではありません");
 }
+const finalPublishJob = releaseWorkflow.split("  publish-release:")[1] ?? "";
+if (
+  !finalPublishJob.includes("pnpm install --frozen-lockfile") ||
+  !finalPublishJob.includes("pnpm notices:generate")
+) {
+  failures.push("最終公開ジョブがRust署名再検証前に依存ライセンス通知を再生成しません");
+}
 try {
   buildReleaseConfig({
     baseConfig: releaseConfig,
