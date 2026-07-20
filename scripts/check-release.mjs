@@ -9,6 +9,7 @@ const packageJson = readJson("package.json");
 const tauriConfig = readJson("src-tauri/tauri.conf.json");
 const releaseConfig = readJson("src-tauri/tauri.release.conf.json");
 const cargo = readFileSync(new URL("src-tauri/Cargo.toml", root), "utf8");
+const releaseWorkflow = readFileSync(new URL(".github/workflows/release.yml", root), "utf8");
 const cargoVersion = cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 const failures = [];
 
@@ -22,6 +23,9 @@ if (!tauriConfig.bundle?.icon?.includes("icons/icon.icns")) {
 if (releaseConfig.bundle?.createUpdaterArtifacts !== true) failures.push("release configで更新artifactが有効ではありません");
 if (releaseConfig.bundle?.macOS?.signingIdentity !== "-") {
   failures.push("release configでmacOSのad-hoc signing identity（-）が明示されていません");
+}
+if (!releaseWorkflow.includes('bundle_dir="$GITHUB_WORKSPACE/src-tauri/target/')) {
+  failures.push("Release署名検証へ渡すartifact pathがGITHUB_WORKSPACE基準の絶対パスではありません");
 }
 try {
   buildReleaseConfig({

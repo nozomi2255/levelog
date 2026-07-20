@@ -1,4 +1,4 @@
-use std::{env, fs};
+use std::{env, fs, path::PathBuf};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use minisign_verify::{PublicKey, Signature};
@@ -11,6 +11,15 @@ fn required_env(name: &str) -> String {
     env::var(name).unwrap_or_else(|_| panic!("required verifier input {name} is not set"))
 }
 
+fn absolute_path(value: String, name: &str) -> PathBuf {
+    let path = PathBuf::from(value);
+    assert!(
+        path.is_absolute(),
+        "{name} must be an absolute path because Cargo may change the test working directory"
+    );
+    path
+}
+
 fn decode_base64_text(encoded: &str, kind: &str) -> String {
     let decoded = STANDARD
         .decode(encoded.trim())
@@ -21,8 +30,8 @@ fn decode_base64_text(encoded: &str, kind: &str) -> String {
 #[test]
 #[ignore = "release-only verifier; requires archive, signature, and public-key environment inputs"]
 fn release_update_archive_matches_configured_public_key() {
-    let archive_path = required_env(ARCHIVE_ENV);
-    let signature_path = required_env(SIGNATURE_ENV);
+    let archive_path = absolute_path(required_env(ARCHIVE_ENV), ARCHIVE_ENV);
+    let signature_path = absolute_path(required_env(SIGNATURE_ENV), SIGNATURE_ENV);
     let encoded_public_key = required_env(PUBLIC_KEY_ENV);
 
     let public_key_text = decode_base64_text(&encoded_public_key, "updater public key");
@@ -39,4 +48,15 @@ fn release_update_archive_matches_configured_public_key() {
     public_key
         .verify(&archive, &signature, true)
         .expect("updater archive signature does not match the configured public key");
+}
+
+#[test]
+fn verifier_paths_must_be_absolute() {
+    let result = std::panic::catch_unwind(|| {
+        absolute_path(
+            "src-tauri/target/release/bundle/macos/Levelog.app.tar.gz".to_owned(),
+            "TEST_ARTIFACT",
+        )
+    });
+    assert!(result.is_err());
 }

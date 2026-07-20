@@ -110,7 +110,9 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          bundle_dir="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          # cargo test changes the integration test's working directory to src-tauri,
+          # so pass absolute artifact paths across the process boundary.
+          bundle_dir="$GITHUB_WORKSPACE/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
           archives=("$bundle_dir"/*.app.tar.gz)
           signatures=("$bundle_dir"/*.app.tar.gz.sig)
           if [[ "${#archives[@]}" -ne 1 ]]; then
