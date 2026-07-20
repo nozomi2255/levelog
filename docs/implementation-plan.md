@@ -806,6 +806,10 @@ Known issues and deliberate limits:
   P5-PUBLISH blockers, not source-code fallback paths.
 - The audited source is published at `https://github.com/nozomi2255/levelog`; local and remote `main` matched
   commit `4354bd5` immediately after the initial push. No Release tag or unsigned public artifact was created.
+- The first hosted CI exposed a pnpm configuration mismatch because the lockfile recorded
+  `injectWorkspacePackages: true` from the development environment while the clean runner default differed.
+  Repository-level `.npmrc` now fixes that lockfile input explicitly so local, CI, Release, and Dependabot
+  frozen installs use the same setting.
 - Intel packaging and a real signed previous-version-to-current-version update cannot be reproduced locally
   on the current Apple Silicon host without the release credentials. The Release workflow builds both and
   keeps them Draft until its completeness gate passes; manual post-release validation remains required.
