@@ -814,6 +814,10 @@ Known issues and deliberate limits:
   image baselines. The functional job now skips only the three screenshot assertions outside macOS, while a
   required parallel `macOS visual regression` job runs those three viewport comparisons on the distribution
   platform. Visual coverage is separated by platform rather than disabled.
+- GitHub-hosted macOS produced stable 2,281/3,629/3,943-pixel rasterization differences from the locally
+  approved images across retries. The comparison allows at most 5,000 changed pixels per full-page viewport,
+  while semantic/layout/overflow assertions remain exact; an official full-SHA-pinned artifact step retains
+  actual, diff, and trace output for seven days whenever that bounded gate fails.
 - Intel packaging and a real signed previous-version-to-current-version update cannot be reproduced locally
   on the current Apple Silicon host without the release credentials. The Release workflow builds both and
   keeps them Draft until its completeness gate passes; manual post-release validation remains required.

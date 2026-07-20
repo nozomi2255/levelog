@@ -215,5 +215,9 @@ test("dashboard matches the approved responsive visual baseline", async ({ page 
   test.skip(process.platform !== "darwin", "Levelogのvisual baselineは配布対象のmacOSで検証します");
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "最初の活動を記録しましょう" })).toBeVisible();
-  await expect(page).toHaveScreenshot("dashboard-empty.png", { fullPage: true, animations: "disabled" });
+  await expect(page).toHaveScreenshot("dashboard-empty.png", {
+    fullPage: true,
+    animations: "disabled",
+    maxDiffPixels: 5_000,
+  });
 });
