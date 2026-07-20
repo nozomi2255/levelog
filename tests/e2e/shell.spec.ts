@@ -38,6 +38,7 @@ test.beforeEach(async ({ page }) => {
       if (command === "list_focus_themes") return profile.focusThemes;
       if (command === "save_focus_themes") { profile.focusThemes = ((args?.input as { themes?: unknown[] })?.themes ?? []) as typeof profile.focusThemes; return profile.focusThemes; }
       if (command === "discover_codex_candidates") return [{ discoveredPath: "/Applications/Codex.app/Contents/Resources/codex", canonicalPath: "/Applications/Codex.app/Contents/Resources/codex", source: "Codex.app", executable: true, recommended: true, connection: null }];
+      if (command === "get_release_info") return { currentVersion: "0.1.0", updaterConfigured: false, releaseChannel: "GitHub Releases / stable" };
       if (command === "get_dashboard") return dashboard;
       if (command === "list_activities") return activities;
       if (command === "list_activity_inbox") return activities.map((activity) => ({ ...activity, workflow: { activityId: activity.id, state: "captured", version: 1, currentQuestion: null, updatedAt: now } }));

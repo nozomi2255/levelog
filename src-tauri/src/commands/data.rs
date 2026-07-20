@@ -16,7 +16,7 @@ use crate::{
     state::AppState,
 };
 
-const EXPORT_SCHEMA_VERSION: i64 = 2;
+const EXPORT_SCHEMA_VERSION: i64 = 3;
 
 /// Creates at most one consistent backup per local calendar day. The marker is
 /// written only after the database snapshot is safely available.
@@ -135,7 +135,8 @@ async fn export_document_from(
             "exportSchemaVersion": EXPORT_SCHEMA_VERSION,
             "format": "levelog.local-data-export",
             "containsSensitiveUserContent": true,
-            "sensitiveContent": ["rawActivityCapture", "submittedPayload", "aiRawOutput", "profileContext", "interviewAnswers"],
+            "archivePrivacy": "private",
+            "sensitiveContent": ["rawActivityCapture", "submittedPayload", "aiRawOutput", "profileContext", "interviewAnswers", "rawSourceDocument", "sourceExcerpt", "portfolioDraft"],
             "excludedSecretClasses": ["codexConnection", "codexExecutablePath", "authenticationTokens", "futureSecretSettings"],
             "restoreSupported": false,
             "databaseMigrations": migrations,
@@ -157,6 +158,17 @@ async fn export_document_from(
         "questGenerationRuns": rows(&mut *connection, "SELECT id, activity_id, analysis_id, quest_id, status, submitted_payload, raw_result_json, provider, prompt_version, schema_version, error_message, created_at, completed_at FROM quest_generation_runs ORDER BY created_at, id").await?,
         "reflections": rows(&mut *connection, "SELECT id, quest_id, result, learned, difficulty_actual, next_action, created_at FROM quest_reflections ORDER BY created_at").await?,
         "xpEvents": rows(&mut *connection, "SELECT id, amount, reason_type, reason_key, activity_id, analysis_id, quest_id, description, created_at FROM xp_events ORDER BY created_at").await?,
+        "sourceDocuments": rows(&mut *connection, "SELECT id, content_sha256, content_text, byte_length, line_count, created_at FROM source_documents ORDER BY created_at").await?,
+        "sourceOccurrences": rows(&mut *connection, "SELECT id, source_document_id, source_kind, display_name, original_path, imported_at FROM source_occurrences ORDER BY imported_at").await?,
+        "evidenceClaims": rows(&mut *connection, "SELECT id, source_document_id, source_occurrence_id, supersedes_claim_id, kind, provenance, statement, source_excerpt, start_byte, end_byte, confidence, review_state, portfolio_eligible, created_at, reviewed_at FROM evidence_claims ORDER BY created_at").await?,
+        "evidenceRelations": rows(&mut *connection, "SELECT id, from_claim_id, to_claim_id, relation_type, created_by, created_at FROM evidence_relations ORDER BY created_at").await?,
+        "evidenceClaimActivityLinks": rows(&mut *connection, "SELECT claim_id, activity_id, created_at FROM evidence_claim_activity_links ORDER BY created_at").await?,
+        "evidenceClaimSkillLinks": rows(&mut *connection, "SELECT claim_id, skill_id, created_at FROM evidence_claim_skill_links ORDER BY created_at").await?,
+        "projects": rows(&mut *connection, "SELECT id, name, summary, status, created_at, updated_at FROM projects ORDER BY created_at").await?,
+        "projectEvidenceLinks": rows(&mut *connection, "SELECT project_id, claim_id, created_at FROM project_evidence_links ORDER BY created_at").await?,
+        "portfolioDrafts": rows(&mut *connection, "SELECT id, title, purpose, body_markdown, privacy_state, created_at, updated_at FROM portfolio_drafts ORDER BY created_at").await?,
+        "portfolioDraftItems": rows(&mut *connection, "SELECT draft_id, claim_id, sort_order, created_at FROM portfolio_draft_items ORDER BY draft_id, sort_order").await?,
+        "evidenceAnalysisJobs": rows(&mut *connection, "SELECT id, source_document_id, status, submitted_payload, raw_result_json, provider, model, codex_version, prompt_version, schema_version, error_message, created_at, completed_at FROM evidence_analysis_jobs ORDER BY created_at").await?,
     }))
 }
 
@@ -306,6 +318,17 @@ mod tests {
             "interviewSessions",
             "interviewAnswers",
             "questGenerationRuns",
+            "sourceDocuments",
+            "sourceOccurrences",
+            "evidenceClaims",
+            "evidenceRelations",
+            "evidenceClaimActivityLinks",
+            "evidenceClaimSkillLinks",
+            "projects",
+            "projectEvidenceLinks",
+            "portfolioDrafts",
+            "portfolioDraftItems",
+            "evidenceAnalysisJobs",
         ] {
             assert!(export.get(key).is_some());
         }
@@ -348,10 +371,10 @@ mod tests {
     fn json_export_is_atomically_written_with_private_permissions() {
         let directory = tempfile::tempdir().unwrap();
         let destination = directory.path().join("export.json");
-        atomic_private_write(&destination, br#"{"schemaVersion":2}"#).unwrap();
+        atomic_private_write(&destination, br#"{"schemaVersion":3}"#).unwrap();
         assert_eq!(
             std::fs::read_to_string(&destination).unwrap(),
-            r#"{"schemaVersion":2}"#
+            r#"{"schemaVersion":3}"#
         );
         assert_eq!(
             std::fs::read_dir(directory.path())

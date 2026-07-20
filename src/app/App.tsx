@@ -8,6 +8,7 @@ import { OnboardingPage } from "../features/onboarding";
 import { QuestsPage } from "../features/quests/QuestsPage";
 import { SettingsPage } from "../features/settings";
 import { SkillsPage } from "../features/skills/SkillsPage";
+import { ClaimReviewPage, EvidenceLibraryPage, ImportEvidencePage, PortfolioPage, ProjectDetailPage, ProjectsPage, SourceDetailPage } from "../features/evidence";
 import { api } from "../lib/api";
 
 function NextPhasePage({ title, message }: { title: string; message: string }) {
@@ -49,7 +50,13 @@ function AppRoutes() {
       <Route path="activities/:activityId/analysis" element={<AnalysisPage />} />
       <Route path="skills" element={<SkillsPage />} />
       <Route path="reports" element={<NextPhasePage title="レポート" message="週次レビューは次フェーズで提供します。活動・証拠・振り返りのデータは、それまでローカルに蓄積されます。" />} />
-      <Route path="memory" element={<NextPhasePage title="メモリ" message="検索できる実績メモリは次フェーズで提供します。現在の全記録は、設定からJSONとして取り出せます。" />} />
+      <Route path="memory" element={<EvidenceLibraryPage />} />
+      <Route path="memory/import" element={<ImportEvidencePage />} />
+      <Route path="memory/claims" element={<ClaimReviewPage />} />
+      <Route path="projects" element={<ProjectsPage />} />
+      <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+      <Route path="sources/:sourceId" element={<SourceDetailPage />} />
+      <Route path="portfolio" element={<PortfolioPage />} />
       <Route path="settings" element={<SettingsPage />} />
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />

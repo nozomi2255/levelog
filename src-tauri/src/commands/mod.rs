@@ -2,7 +2,10 @@ pub mod activity;
 pub mod app;
 pub mod codex;
 pub mod data;
+pub mod evidence;
+pub mod evidence_import;
 pub mod quest;
+pub mod update;
 
 use tauri::State;
 

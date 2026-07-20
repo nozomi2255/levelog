@@ -319,3 +319,234 @@ export interface ExportResult {
   schemaVersion: number;
   exportedAt: string;
 }
+
+export type EvidenceClaimKind =
+  | "fact"
+  | "experience"
+  | "achievement"
+  | "outcome"
+  | "decision"
+  | "lesson"
+  | "knowledge"
+  | "idea"
+  | "project"
+  | "interest"
+  | "personality_signal"
+  | "inference";
+
+export type EvidenceProvenance =
+  | "user_asserted"
+  | "import_extracted"
+  | "ai_inference"
+  | "activity_confirmed";
+
+export type EvidenceReviewState =
+  | "pending"
+  | "accepted"
+  | "edited"
+  | "rejected"
+  | "excluded"
+  | "deferred";
+
+export interface ImportPastedSourceInput {
+  displayName: string;
+  contentText: string;
+}
+
+export interface SourceDocumentDto {
+  id: string;
+  contentSha256: string;
+  contentText: string;
+  byteLength: number;
+  lineCount: number;
+  createdAt: string;
+}
+
+export interface SourceOccurrenceDto {
+  id: string;
+  sourceDocumentId: string;
+  sourceKind: "paste" | "markdown" | "text";
+  displayName: string;
+  originalPath: string | null;
+  importedAt: string;
+}
+
+export interface ImportedSourceDto {
+  document: SourceDocumentDto;
+  occurrence: SourceOccurrenceDto;
+  duplicateContent: boolean;
+}
+
+export interface SourceImportResult {
+  imported: ImportedSourceDto[];
+  failures: Array<{ displayName: string; message: string }>;
+}
+
+export interface EvidenceClaimDto {
+  id: string;
+  sourceDocumentId: string;
+  sourceOccurrenceId: string | null;
+  supersedesClaimId: string | null;
+  kind: EvidenceClaimKind;
+  provenance: EvidenceProvenance;
+  statement: string;
+  sourceExcerpt: string;
+  startByte: number | null;
+  endByte: number | null;
+  confidence: number | null;
+  reviewState: EvidenceReviewState;
+  portfolioEligible: boolean;
+  linkedSkillIds: string[];
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+export interface EvidenceRelationDto {
+  id: string;
+  fromClaimId: string;
+  toClaimId: string;
+  relationType: "supports" | "contradicts" | "refines" | "duplicates" | "related";
+  createdBy: "user" | "import" | "ai_suggestion";
+  createdAt: string;
+}
+
+export interface CreateEvidenceRelationInput {
+  fromClaimId: string;
+  toClaimId: string;
+  relationType: EvidenceRelationDto["relationType"];
+}
+
+export interface CreateEvidenceClaimInput {
+  sourceDocumentId: string;
+  sourceOccurrenceId: string | null;
+  kind: EvidenceClaimKind;
+  statement: string;
+  sourceExcerpt: string;
+  startByte: number | null;
+  endByte: number | null;
+  linkedSkillIds: string[];
+}
+
+export interface ReviewEvidenceClaimInput {
+  claimId: string;
+  decision: "accept" | "edit" | "reject" | "exclude" | "defer" | "reopen";
+  editedStatement: string | null;
+  portfolioEligible: boolean;
+}
+
+export interface ClaimActivityLinkInput {
+  claimId: string;
+  activityId: string;
+}
+
+export interface EvidenceLibraryQuery {
+  reviewState: EvidenceReviewState | null;
+  kind: EvidenceClaimKind | null;
+  projectId: string | null;
+  search: string | null;
+}
+
+export interface EvidenceLibraryDto {
+  sources: SourceOccurrenceDto[];
+  claims: EvidenceClaimDto[];
+  counts: {
+    sourceCount: number;
+    pendingClaimCount: number;
+    acceptedClaimCount: number;
+    inferenceCount: number;
+    projectCount: number;
+    privateDraftCount: number;
+  };
+}
+
+export interface SourceDocumentDetailDto {
+  document: SourceDocumentDto;
+  occurrences: SourceOccurrenceDto[];
+  claims: EvidenceClaimDto[];
+}
+
+export type ProjectStatus = "idea" | "active" | "paused" | "completed" | "archived";
+
+export interface CreateProjectInput {
+  name: string;
+  summary: string;
+  status: ProjectStatus;
+}
+
+export interface ProjectDto extends CreateProjectInput {
+  id: string;
+  evidenceCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectDetailDto extends ProjectDto {
+  claims: EvidenceClaimDto[];
+}
+
+export interface PortfolioDraftDto {
+  id: string;
+  title: string;
+  purpose: string;
+  bodyMarkdown: string;
+  privacyState: "private";
+  claimIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePortfolioDraftInput {
+  title: string;
+  purpose: string;
+  claimIds: string[];
+}
+
+export interface UpdatePortfolioDraftInput extends CreatePortfolioDraftInput {
+  draftId: string;
+  bodyMarkdown: string;
+}
+
+export interface EvidenceAnalysisJobDto {
+  id: string;
+  sourceDocumentId: string;
+  status: JobStatus;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface EvidenceAnalysisPreviewDto {
+  sourceId: string;
+  submittedPayload: string;
+  cloudInferenceNotice: string;
+  redactionFindings: Array<{
+    kind: "private_key" | "password" | "api_key" | "token" | "email" | string;
+    startByte: number;
+    endByte: number;
+  }>;
+  needsReview: boolean;
+}
+
+export interface StartEvidenceAnalysisInput {
+  sourceDocumentId: string;
+  submittedPayload: string;
+}
+
+export interface ReleaseInfoDto {
+  currentVersion: string;
+  updaterConfigured: boolean;
+  releaseChannel: string;
+}
+
+export interface AppUpdateDto {
+  currentVersion: string;
+  version: string;
+  publishedAt: string | null;
+  notes: string | null;
+}
+
+export type AppUpdateEvent =
+  | { event: "started"; data: { contentLength: number | null } }
+  | { event: "progress"; data: { chunkLength: number } }
+  | { event: "finished" }
+  | { event: "installed" };

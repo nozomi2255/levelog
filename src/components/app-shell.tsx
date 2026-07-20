@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bell, BookOpen, BrainCircuit, ClipboardList, House, Plus, ScrollText, Settings, Swords } from "lucide-react";
+import { Bell, BrainCircuit, ClipboardList, Database, House, Plus, ScrollText, Settings, Swords } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { api } from "../lib/api";
 
 const navigation = [
-  ["/", "ホーム", "HOME", House], ["/quests", "クエスト", "QUESTS", Swords], ["/activities", "アクティビティ", "ACTIVITIES", ClipboardList], ["/skills", "スキル", "SKILLS", BrainCircuit], ["/reports", "レポート", "REPORTS", ScrollText], ["/memory", "メモリ", "MEMORY", BookOpen], ["/settings", "設定", "SETTINGS", Settings],
+  ["/", "ホーム", "HOME", House], ["/quests", "クエスト", "QUESTS", Swords], ["/activities", "アクティビティ", "ACTIVITIES", ClipboardList], ["/skills", "スキル", "SKILLS", BrainCircuit], ["/reports", "レポート", "REPORTS", ScrollText], ["/memory", "エビデンス", "EVIDENCE", Database], ["/settings", "設定", "SETTINGS", Settings],
 ] as const;
 
 export function AppShell() {

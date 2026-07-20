@@ -1,3 +1,4 @@
+import { Channel } from "@tauri-apps/api/core";
 import type {
   ActivityAnalysisDto,
   ActivityDetailDto,
@@ -16,21 +17,43 @@ import type {
   CreateActivityInput,
   DashboardSnapshot,
   ExportResult,
+  ClaimActivityLinkInput,
+  CreateEvidenceClaimInput,
+  CreateEvidenceRelationInput,
+  CreatePortfolioDraftInput,
+  CreateProjectInput,
+  EvidenceAnalysisJobDto,
+  EvidenceAnalysisPreviewDto,
+  EvidenceClaimDto,
+  EvidenceRelationDto,
+  EvidenceLibraryDto,
+  EvidenceLibraryQuery,
   FocusThemeDto,
   FocusThemeInput,
   GenerateQuestInput,
   OnboardingInput,
   InterviewAnswerInput,
+  ImportPastedSourceInput,
   QuickCaptureInput,
   QuestDto,
   QuestReflectionDto,
   QuestReflectionInput,
   QuestTransitionInput,
+  PortfolioDraftDto,
+  ProjectDetailDto,
+  ProjectDto,
   SkillDto,
   StartAnalysisInput,
   SubmissionPreview,
+  SourceDocumentDetailDto,
+  SourceImportResult,
+  StartEvidenceAnalysisInput,
+  UpdatePortfolioDraftInput,
   UpdateUserProfileInput,
   UserProfileDto,
+  AppUpdateDto,
+  AppUpdateEvent,
+  ReleaseInfoDto,
 } from "./types";
 import { invokeCommand } from "./tauri";
 
@@ -83,6 +106,53 @@ export const api = {
   saveQuestReflection: (input: QuestReflectionInput) =>
     invokeCommand<QuestReflectionDto>("save_quest_reflection", { input }),
   listSkills: () => invokeCommand<SkillDto[]>("list_skills"),
+  importPastedSource: (input: ImportPastedSourceInput) =>
+    invokeCommand<SourceImportResult>("import_pasted_source", { input }),
+  pickAndImportSources: () => invokeCommand<SourceImportResult>("pick_and_import_sources"),
+  listEvidenceLibrary: (input: EvidenceLibraryQuery) =>
+    invokeCommand<EvidenceLibraryDto>("list_evidence_library", { input }),
+  getEvidenceSource: (sourceId: string) =>
+    invokeCommand<SourceDocumentDetailDto>("get_evidence_source", { sourceId }),
+  createEvidenceClaim: (input: CreateEvidenceClaimInput) =>
+    invokeCommand<EvidenceClaimDto>("create_evidence_claim", { input }),
+  reviewEvidenceClaim: (input: import("./types").ReviewEvidenceClaimInput) =>
+    invokeCommand<EvidenceClaimDto>("review_evidence_claim", { input }),
+  listEvidenceRelations: () => invokeCommand<EvidenceRelationDto[]>("list_evidence_relations"),
+  createEvidenceRelation: (input: CreateEvidenceRelationInput) =>
+    invokeCommand<EvidenceRelationDto>("create_evidence_relation", { input }),
+  deleteEvidenceRelation: (relationId: string) =>
+    invokeCommand<void>("delete_evidence_relation", { relationId }),
+  linkClaimToActivity: (input: ClaimActivityLinkInput) =>
+    invokeCommand<EvidenceClaimDto>("link_claim_to_activity", { input }),
+  createProject: (input: CreateProjectInput) =>
+    invokeCommand<ProjectDto>("create_project", { input }),
+  listProjects: () => invokeCommand<ProjectDto[]>("list_projects"),
+  getProject: (projectId: string) =>
+    invokeCommand<ProjectDetailDto>("get_project", { projectId }),
+  linkClaimToProject: (projectId: string, claimId: string) =>
+    invokeCommand<ProjectDetailDto>("link_claim_to_project", { input: { projectId, claimId } }),
+  unlinkClaimFromProject: (projectId: string, claimId: string) =>
+    invokeCommand<ProjectDetailDto>("unlink_claim_from_project", { input: { projectId, claimId } }),
+  createPortfolioDraft: (input: CreatePortfolioDraftInput) =>
+    invokeCommand<PortfolioDraftDto>("create_portfolio_draft", { input }),
+  updatePortfolioDraft: (input: UpdatePortfolioDraftInput) =>
+    invokeCommand<PortfolioDraftDto>("update_portfolio_draft", { input }),
+  listPortfolioDrafts: () => invokeCommand<PortfolioDraftDto[]>("list_portfolio_drafts"),
+  getEvidenceAnalysisPreview: (sourceId: string) =>
+    invokeCommand<EvidenceAnalysisPreviewDto>("get_evidence_analysis_preview", { sourceId }),
+  startEvidenceAnalysis: (input: StartEvidenceAnalysisInput) =>
+    invokeCommand<EvidenceAnalysisJobDto>("start_evidence_analysis", { input }),
+  getEvidenceAnalysis: (jobId: string) =>
+    invokeCommand<EvidenceAnalysisJobDto>("get_evidence_analysis", { jobId }),
+  cancelEvidenceAnalysis: (jobId: string) =>
+    invokeCommand<EvidenceAnalysisJobDto>("cancel_evidence_analysis", { jobId }),
   createBackup: () => invokeCommand<BackupResult>("create_backup"),
   exportJson: () => invokeCommand<ExportResult>("export_json"),
+  getReleaseInfo: () => invokeCommand<ReleaseInfoDto>("get_release_info"),
+  checkForAppUpdate: () => invokeCommand<AppUpdateDto | null>("check_for_app_update"),
+  installAppUpdate: (onEvent: (event: AppUpdateEvent) => void) => {
+    const channel = new Channel<AppUpdateEvent>();
+    channel.onmessage = onEvent;
+    return invokeCommand<void>("install_app_update", { onEvent: channel });
+  },
 };

@@ -10,4 +10,14 @@ src-tauri/gen/
 .env
 .env.*
 !.env.example
-
+.secrets/
+*.p12
+*.p8
+*.cer
+*.mobileprovision
+*.key
+*.key.pub
+certificate-base64.txt
+latest.json
+tmp/
+src-tauri/resources/THIRD_PARTY_NOTICES.md

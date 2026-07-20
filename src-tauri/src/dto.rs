@@ -526,3 +526,290 @@ pub struct QuestProposalOutput {
     pub success_criteria: Vec<String>,
     pub evidence_prompt: String,
 }
+
+// Phase 4 personal-evidence-graph contracts. Source originals, claim provenance, review state,
+// project links, and private draft state remain separate so that accepting a suggestion never
+// changes what kind of evidence it is.
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPastedSourceInput {
+    pub display_name: String,
+    pub content_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceDocumentDto {
+    pub id: String,
+    pub content_sha256: String,
+    pub content_text: String,
+    pub byte_length: i64,
+    pub line_count: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceOccurrenceDto {
+    pub id: String,
+    pub source_document_id: String,
+    pub source_kind: String,
+    pub display_name: String,
+    pub original_path: Option<String>,
+    pub imported_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedSourceDto {
+    pub document: SourceDocumentDto,
+    pub occurrence: SourceOccurrenceDto,
+    pub duplicate_content: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceImportFailureDto {
+    pub display_name: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceImportResult {
+    pub imported: Vec<ImportedSourceDto>,
+    pub failures: Vec<SourceImportFailureDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceClaimDto {
+    pub id: String,
+    pub source_document_id: String,
+    pub source_occurrence_id: Option<String>,
+    pub supersedes_claim_id: Option<String>,
+    pub kind: String,
+    pub provenance: String,
+    pub statement: String,
+    pub source_excerpt: String,
+    pub start_byte: Option<i64>,
+    pub end_byte: Option<i64>,
+    pub confidence: Option<f64>,
+    pub review_state: String,
+    pub portfolio_eligible: bool,
+    pub linked_skill_ids: Vec<String>,
+    pub created_at: String,
+    pub reviewed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceRelationDto {
+    pub id: String,
+    pub from_claim_id: String,
+    pub to_claim_id: String,
+    pub relation_type: String,
+    pub created_by: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateEvidenceRelationInput {
+    pub from_claim_id: String,
+    pub to_claim_id: String,
+    pub relation_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateEvidenceClaimInput {
+    pub source_document_id: String,
+    pub source_occurrence_id: Option<String>,
+    pub kind: String,
+    pub statement: String,
+    pub source_excerpt: String,
+    pub start_byte: Option<i64>,
+    pub end_byte: Option<i64>,
+    #[serde(default)]
+    pub linked_skill_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewEvidenceClaimInput {
+    pub claim_id: String,
+    pub decision: String,
+    pub edited_statement: Option<String>,
+    pub portfolio_eligible: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimActivityLinkInput {
+    pub claim_id: String,
+    pub activity_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceLibraryQuery {
+    pub review_state: Option<String>,
+    pub kind: Option<String>,
+    pub project_id: Option<String>,
+    pub search: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceLibraryCountsDto {
+    pub source_count: i64,
+    pub pending_claim_count: i64,
+    pub accepted_claim_count: i64,
+    pub inference_count: i64,
+    pub project_count: i64,
+    pub private_draft_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceLibraryDto {
+    pub sources: Vec<SourceOccurrenceDto>,
+    pub claims: Vec<EvidenceClaimDto>,
+    pub counts: EvidenceLibraryCountsDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceDocumentDetailDto {
+    pub document: SourceDocumentDto,
+    pub occurrences: Vec<SourceOccurrenceDto>,
+    pub claims: Vec<EvidenceClaimDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectInput {
+    pub name: String,
+    pub summary: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectClaimLinkInput {
+    pub project_id: String,
+    pub claim_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDto {
+    pub id: String,
+    pub name: String,
+    pub summary: String,
+    pub status: String,
+    pub evidence_count: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDetailDto {
+    #[serde(flatten)]
+    pub project: ProjectDto,
+    pub claims: Vec<EvidenceClaimDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePortfolioDraftInput {
+    pub title: String,
+    pub purpose: String,
+    pub claim_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePortfolioDraftInput {
+    pub draft_id: String,
+    pub title: String,
+    pub purpose: String,
+    pub body_markdown: String,
+    pub claim_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PortfolioDraftDto {
+    pub id: String,
+    pub title: String,
+    pub purpose: String,
+    pub body_markdown: String,
+    pub privacy_state: String,
+    pub claim_ids: Vec<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StartEvidenceAnalysisInput {
+    pub source_document_id: String,
+    pub submitted_payload: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceAnalysisJobDto {
+    pub id: String,
+    pub source_document_id: String,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RedactionFindingDto {
+    pub kind: String,
+    pub start_byte: i64,
+    pub end_byte: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceAnalysisPreviewDto {
+    pub source_id: String,
+    pub submitted_payload: String,
+    pub cloud_inference_notice: String,
+    pub redaction_findings: Vec<RedactionFindingDto>,
+    pub needs_review: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EvidenceExtractionCandidateOutput {
+    pub statement: String,
+    pub kind: String,
+    pub provenance: String,
+    pub confidence: f64,
+    pub source_excerpt: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub start_byte: Option<i64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub end_byte: Option<i64>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub canonical_skill_id: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub project_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EvidenceExtractionOutput {
+    pub candidates: Vec<EvidenceExtractionCandidateOutput>,
+}

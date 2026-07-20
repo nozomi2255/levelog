@@ -13,7 +13,7 @@ use tempfile::TempDir;
 use thiserror::Error;
 use tokio::{io::AsyncWriteExt, process::Command, sync::watch, time::timeout};
 
-use crate::dto::{ActivityAnalysisOutput, QuestProposalOutput};
+use crate::dto::{ActivityAnalysisOutput, EvidenceExtractionOutput, QuestProposalOutput};
 
 pub const TIMEOUT: Duration = Duration::from_secs(180);
 pub const REQUIRED_FEATURES: [&str; 5] = [
@@ -25,6 +25,7 @@ pub const REQUIRED_FEATURES: [&str; 5] = [
 ];
 pub const ACTIVITY_SCHEMA_VERSION: &str = "activity-analysis.v2";
 pub const QUEST_SCHEMA_VERSION: &str = "quest-proposal.v1";
+pub const EVIDENCE_SCHEMA_VERSION: &str = "evidence-extraction.v1";
 const MAX_CODEX_PAYLOAD_BYTES: usize = 512 * 1024;
 const MAX_CODEX_OUTPUT_BYTES: u64 = 1024 * 1024;
 
@@ -393,6 +394,67 @@ impl<R: ProcessRunner> CodexClient<R> {
         })
     }
 
+    pub async fn analyze_evidence(
+        &self,
+        payload: String,
+        cancel: watch::Receiver<bool>,
+    ) -> Result<CodexJsonOutput<EvidenceExtractionOutput>, CodexError> {
+        let raw_json = self
+            .exec_json(
+                EVIDENCE_SCHEMA_VERSION,
+                evidence_schema(),
+                include_str!("../../../prompts/evidence-extraction.v1.md"),
+                payload,
+                cancel,
+            )
+            .await?;
+        let output: EvidenceExtractionOutput = decode(raw_json.clone(), EVIDENCE_SCHEMA_VERSION)?;
+        if output.candidates.len() > 50
+            || output.candidates.iter().any(|c| {
+                !matches!(
+                    c.kind.as_str(),
+                    "fact"
+                        | "experience"
+                        | "achievement"
+                        | "outcome"
+                        | "decision"
+                        | "lesson"
+                        | "knowledge"
+                        | "idea"
+                        | "project"
+                        | "interest"
+                        | "personality_signal"
+                        | "inference"
+                ) || !matches!(c.provenance.as_str(), "import_extracted" | "ai_inference")
+                    || !(0.0..=1.0).contains(&c.confidence)
+                    || c.statement.trim().is_empty()
+                    || c.statement.chars().count() > 1_000
+                    || c.source_excerpt.trim().is_empty()
+                    || c.source_excerpt.chars().count() > 2_000
+                    || matches!(
+                        (&c.start_byte, &c.end_byte),
+                        (Some(_), None) | (None, Some(_))
+                    )
+                    || c.canonical_skill_id
+                        .as_ref()
+                        .is_some_and(|id| !SKILL_IDS.contains(&id.as_str()))
+                    || c.project_hint
+                        .as_ref()
+                        .is_some_and(|hint| hint.trim().is_empty() || hint.chars().count() > 160)
+            })
+        {
+            return Err(CodexError::SchemaViolationOutput {
+                schema: EVIDENCE_SCHEMA_VERSION,
+                message: "invalid evidence candidate".into(),
+                raw_json,
+            });
+        }
+        Ok(CodexJsonOutput {
+            raw_json,
+            parsed: output,
+        })
+    }
+
     async fn exec_json(
         &self,
         schema_version: &'static str,
@@ -531,6 +593,9 @@ fn activity_schema() -> &'static str {
 }
 fn quest_schema() -> &'static str {
     include_str!("../../../schemas/quest-proposal.v1.schema.json")
+}
+fn evidence_schema() -> &'static str {
+    include_str!("../../../schemas/evidence-extraction.v1.schema.json")
 }
 
 #[cfg(test)]

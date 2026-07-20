@@ -16,6 +16,8 @@ pub enum AppError {
     Database(String),
     #[error("Codexを利用できません: {0}")]
     Codex(String),
+    #[error("アプリの更新に失敗しました: {0}")]
+    Update(String),
     #[error("ファイル処理に失敗しました: {0}")]
     Io(String),
     #[error("内部処理に失敗しました: {0}")]
@@ -79,5 +81,11 @@ impl From<crate::application::ServiceError> for AppError {
 impl From<crate::infrastructure::codex::CodexError> for AppError {
     fn from(value: crate::infrastructure::codex::CodexError) -> Self {
         Self::Codex(value.to_string())
+    }
+}
+
+impl From<tauri_plugin_updater::Error> for AppError {
+    fn from(value: tauri_plugin_updater::Error) -> Self {
+        Self::Update(value.to_string())
     }
 }
