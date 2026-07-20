@@ -46,6 +46,95 @@ pub struct AppSettingsDto {
     pub updated_at: String,
 }
 
+pub const USER_PROFILE_SCHEMA_VERSION: i64 = 2;
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FocusThemeDto {
+    pub id: String,
+    pub title: String,
+    pub desired_outcome: String,
+    pub why_now: String,
+    pub horizon: String,
+    pub status: String,
+    pub linked_skill_ids: Vec<String>,
+    pub sort_order: i64,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FocusThemeInput {
+    pub id: Option<String>,
+    pub title: String,
+    pub desired_outcome: String,
+    pub why_now: String,
+    pub horizon: String,
+    pub status: String,
+    pub linked_skill_ids: Vec<String>,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveFocusThemesInput {
+    pub themes: Vec<FocusThemeInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UserProfileDto {
+    pub schema_version: i64,
+    pub revision: i64,
+    pub role: String,
+    pub background: String,
+    pub current_responsibilities: String,
+    pub domains_and_technologies: Vec<String>,
+    pub growth_goal: String,
+    pub motivation: String,
+    pub current_challenges: String,
+    pub recent_success: String,
+    pub focus_skill_ids: Vec<String>,
+    pub weekly_minutes: i64,
+    pub preferred_quest_minutes: i64,
+    pub preferred_quest_style: String,
+    pub constraints: String,
+    pub excluded_quest_patterns: String,
+    pub focus_themes: Vec<FocusThemeDto>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateUserProfileInput {
+    pub expected_revision: Option<i64>,
+    pub role: String,
+    pub background: String,
+    pub current_responsibilities: String,
+    pub domains_and_technologies: Vec<String>,
+    pub growth_goal: String,
+    pub motivation: String,
+    pub current_challenges: String,
+    pub recent_success: String,
+    pub focus_skill_ids: Vec<String>,
+    pub weekly_minutes: i64,
+    pub preferred_quest_minutes: i64,
+    pub preferred_quest_style: String,
+    pub constraints: String,
+    pub excluded_quest_patterns: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexPathCandidateDto {
+    pub discovered_path: String,
+    pub canonical_path: String,
+    pub source: String,
+    pub executable: bool,
+    pub recommended: bool,
+    pub connection: Option<CodexConnectionStatus>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateActivityInput {
@@ -53,6 +142,14 @@ pub struct CreateActivityInput {
     pub action_text: String,
     pub challenge_text: String,
     pub outcome_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickCaptureInput {
+    pub occurred_on: String,
+    pub raw_text: String,
+    pub capture_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -69,6 +166,10 @@ pub struct CandidateDecisionInput {
     pub decision: String,
     pub edited_reason: Option<String>,
     pub edited_evidence: Option<String>,
+    #[serde(default)]
+    pub edited_skill_id: Option<String>,
+    #[serde(default)]
+    pub edited_specialized_skill_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -83,6 +184,55 @@ pub struct ConfirmAnalysisInput {
 pub struct GenerateQuestInput {
     pub activity_id: String,
     pub analysis_id: String,
+    #[serde(default)]
+    pub submitted_payload: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InterviewChoiceDto {
+    pub value: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InterviewQuestionDto {
+    pub session_id: String,
+    pub question_id: String,
+    pub target: String,
+    pub text: String,
+    pub answer_type: String,
+    pub choices: Vec<InterviewChoiceDto>,
+    pub why_it_matters: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InterviewAnswerInput {
+    pub session_id: String,
+    pub question_id: String,
+    pub answer_state: String,
+    pub answer: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityWorkflowDto {
+    pub activity_id: String,
+    pub state: String,
+    pub version: i64,
+    pub current_question: Option<InterviewQuestionDto>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityInboxItemDto {
+    #[serde(flatten)]
+    pub activity: ActivityDto,
+    pub workflow: ActivityWorkflowDto,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -134,6 +284,14 @@ pub struct AnalysisPreview {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct SubmissionPreview {
+    pub entity_id: String,
+    pub submitted_payload: String,
+    pub cloud_inference_notice: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct AnalysisJobDto {
     pub id: String,
     pub activity_id: String,
@@ -152,6 +310,7 @@ pub struct SkillCandidateDto {
     pub reason: String,
     pub evidence: String,
     pub decision: String,
+    pub specialized_skill_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -162,8 +321,11 @@ pub struct ActivityAnalysisDto {
     pub status: String,
     pub summary: Option<String>,
     pub outcomes: Vec<String>,
+    pub confirmed_facts: Vec<String>,
+    pub unconfirmed_facts: Vec<String>,
     pub skill_candidates: Vec<SkillCandidateDto>,
     pub missing_information_question: Option<String>,
+    pub next_question: Option<InterviewQuestionDto>,
     pub error_message: Option<String>,
 }
 
@@ -213,6 +375,15 @@ pub struct SkillDto {
     pub category: String,
     pub evidence_count: i64,
     pub state: String,
+    pub specialized_skills: Vec<SpecializedSkillSummaryDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecializedSkillSummaryDto {
+    pub name: String,
+    pub evidence_count: i64,
+    pub last_observed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -260,25 +431,91 @@ pub struct ExportResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SkillCandidateOutput {
     pub skill_id: String,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub specialized_skill_name: Option<String>,
     pub confidence: f64,
     pub reason: String,
     pub evidence: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityAnalysisOutput {
-    pub summary: String,
-    pub outcomes: Vec<String>,
-    pub skill_candidates: Vec<SkillCandidateOutput>,
-    pub missing_information_question: Option<String>,
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InterviewChoiceOutput {
+    pub value: String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NextQuestionOutput {
+    pub question_id: String,
+    pub target: String,
+    pub text: String,
+    pub answer_type: String,
+    pub choices: Vec<InterviewChoiceOutput>,
+    pub why_it_matters: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActivityAnalysisOutput {
+    pub summary: String,
+    pub outcomes: Vec<String>,
+    pub confirmed_facts: Vec<String>,
+    pub unconfirmed_facts: Vec<String>,
+    pub skill_candidates: Vec<SkillCandidateOutput>,
+    #[serde(default)]
+    pub missing_information_question: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub next_question: Option<NextQuestionOutput>,
+}
+
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LegacyActivityAnalysisOutput {
+    summary: String,
+    outcomes: Vec<String>,
+    skill_candidates: Vec<serde_json::Value>,
+    #[serde(default)]
+    missing_information_question: Option<String>,
+}
+
+pub fn parse_activity_analysis_output_compat(
+    json: &str,
+) -> Result<ActivityAnalysisOutput, serde_json::Error> {
+    match serde_json::from_str::<ActivityAnalysisOutput>(json) {
+        Ok(output) => Ok(output),
+        Err(v2_error) => match serde_json::from_str::<LegacyActivityAnalysisOutput>(json) {
+            Ok(legacy) => {
+                let _ = legacy.skill_candidates;
+                Ok(ActivityAnalysisOutput {
+                    summary: legacy.summary,
+                    outcomes: legacy.outcomes,
+                    confirmed_facts: Vec::new(),
+                    unconfirmed_facts: Vec::new(),
+                    skill_candidates: Vec::new(),
+                    missing_information_question: legacy.missing_information_question,
+                    next_question: None,
+                })
+            }
+            Err(_) => Err(v2_error),
+        },
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuestProposalOutput {
     pub template_id: String,
     pub title: String,

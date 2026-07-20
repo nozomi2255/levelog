@@ -5,12 +5,24 @@
 
 use crate::{
     dto::CodexConnectionStatus,
-    infrastructure::codex::{CodexClient, TokioProcessRunner},
+    infrastructure::codex::{CodexClient, TokioProcessRunner, discovery::canonical_executable},
 };
 use std::path::PathBuf;
 
 pub async fn test_connection(codex_path: String) -> CodexConnectionStatus {
-    let path = PathBuf::from(codex_path);
+    let discovered_path = PathBuf::from(codex_path);
+    let path = match canonical_executable(&discovered_path) {
+        Ok(path) => path,
+        Err(message) => {
+            return CodexConnectionStatus {
+                available: false,
+                authenticated: false,
+                path: discovered_path.display().to_string(),
+                version: None,
+                message,
+            };
+        }
+    };
     let display_path = path.display().to_string();
     match CodexClient::new(path, TokioProcessRunner) {
         Ok(client) => match client.probe().await {
@@ -19,7 +31,7 @@ pub async fn test_connection(codex_path: String) -> CodexConnectionStatus {
                 authenticated: true,
                 path: connection.path.display().to_string(),
                 version: Some(connection.version),
-                message: "Codex CLI is ready with required safety controls.".into(),
+                message: "Codex CLIは必要な安全制御を有効にして利用できます。".into(),
             },
             Err(error) => CodexConnectionStatus {
                 available: !matches!(error, crate::infrastructure::codex::CodexError::NotFound(_)),

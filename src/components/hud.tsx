@@ -37,7 +37,7 @@ export function HudBadge({ children, tone = "cyan" }: PropsWithChildren<{ tone?:
 export function ProgressBar({ value, max, label }: { value: number; max: number; label: string }) {
   const percentage = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
-    <div className="progress" aria-label={label}>
+    <div className="progress" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={value}>
       <div className="progress__track"><div className="progress__value" style={{ width: `${percentage}%` }} /></div>
       <span className="progress__label">{value.toLocaleString()} / {max.toLocaleString()}</span>
     </div>

@@ -11,14 +11,16 @@ vi.mock("../../lib/api", () => ({
   api: {
     getActivity: vi.fn(), getAnalysisPreview: vi.fn(), getActivityAnalysis: vi.fn(),
     startActivityAnalysis: vi.fn(), cancelActivityAnalysis: vi.fn(),
-    confirmActivityAnalysis: vi.fn(), generateQuest: vi.fn(),
+    confirmActivityAnalysis: vi.fn(), generateQuest: vi.fn(), getQuestPreview: vi.fn(),
+    getActivityWorkflow: vi.fn(), answerActivityQuestion: vi.fn(),
   },
 }));
 
 const analysis: ActivityAnalysisDto = {
   id: "analysis-1", activityId: "activity-1", status: "succeeded", summary: "要件を整理した",
   outcomes: ["認識を揃えた"], missingInformationQuestion: "相手の反応は？", errorMessage: null,
-  skillCandidates: [{ id: "candidate-1", skillId: "thinking.information_structuring", confidence: .8, reason: "情報を分けた", evidence: "三つの確認事項にした", decision: "pending" }],
+  confirmedFacts: ["確認済みの事実"], unconfirmedFacts: ["未確認の事実"], nextQuestion: null,
+  skillCandidates: [{ id: "candidate-1", skillId: "thinking.information_structuring", confidence: .8, reason: "情報を分けた", evidence: "三つの確認事項にした", decision: "pending", specializedSkillName: null }],
 };
 const activity: ActivityDetailDto = {
   id: "activity-1", occurredOn: "2026-07-20", actionText: "要件を整理した", challengeText: "", outcomeText: "認識が揃った", createdAt: "2026-07-20T00:00:00.000Z", analysisStatus: null, analyses: [],
@@ -34,12 +36,13 @@ describe("AnalysisPage", () => {
     vi.mocked(api.getActivity).mockResolvedValue(activity);
     vi.mocked(api.getAnalysisPreview).mockResolvedValue({ activityId: "activity-1", submittedPayload: "{\n  \"activity\": \"safe\"\n}", cloudInferenceNotice: "Codexへ送信されます" });
     vi.mocked(api.getActivityAnalysis).mockResolvedValue(analysis);
+    vi.mocked(api.getActivityWorkflow).mockResolvedValue({ activityId: "activity-1", state: "review_pending", version: 1, currentQuestion: null, updatedAt: "2026-07-20T00:00:00.000Z" });
     vi.mocked(api.confirmActivityAnalysis).mockResolvedValue({ analysisId: "analysis-1", confirmedObservationCount: 1, xpAwarded: 20 });
   });
 
   it("shows an editable payload before an analysis starts", async () => {
     renderPage();
-    expect(await screen.findByRole("heading", { name: "AI分析の確認" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "経験を整理する" })).toBeInTheDocument();
     expect((screen.getByLabelText("送信するJSON") as HTMLTextAreaElement).value).toContain("safe");
     expect(screen.getByText(/Codexへ送信されます/)).toBeInTheDocument();
   });
@@ -54,14 +57,14 @@ describe("AnalysisPage", () => {
     expect(await screen.findByRole("button", { name: buttonName })).toBeInTheDocument();
   });
 
-  it("defaults pending AI candidates to rejection and submits an explicit user decision", async () => {
+  it("requires an explicit decision and submits edited skill fields", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getActivity).mockResolvedValue({ ...activity, analysisStatus: "succeeded", analyses: [analysis] });
     renderPage();
-    const rejected = await screen.findByRole("radio", { name: "却下" });
-    expect(rejected).toBeChecked();
+    await screen.findByRole("radio", { name: "却下" });
+    expect(screen.getByRole("button", { name: "判断を確定する（+20 XP）" })).toBeDisabled();
     await user.click(screen.getByRole("radio", { name: "採用" }));
     await user.click(screen.getByRole("button", { name: "判断を確定する（+20 XP）" }));
-    await waitFor(() => expect(api.confirmActivityAnalysis).toHaveBeenCalledWith({ analysisId: "analysis-1", candidateDecisions: [{ candidateId: "candidate-1", decision: "accepted", editedReason: null, editedEvidence: null }] }));
+    await waitFor(() => expect(api.confirmActivityAnalysis).toHaveBeenCalledWith({ analysisId: "analysis-1", candidateDecisions: [{ candidateId: "candidate-1", decision: "accepted", editedReason: null, editedEvidence: null, editedSkillId: null, editedSpecializedSkillName: null }] }));
   });
 });

@@ -16,8 +16,25 @@ pub struct AppState {
 impl AppState {
     pub async fn initialize(app_data_dir: PathBuf) -> Result<Self, AppError> {
         std::fs::create_dir_all(&app_data_dir)?;
-        let db = Database::open(app_data_dir.join("levelog.db")).await?;
-        sqlx::query("UPDATE ai_analyses SET status = 'failed', error_message = 'アプリ終了により解析が中断されました', completed_at = datetime('now') WHERE status = 'running'")
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&app_data_dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+        let database_path = app_data_dir.join("levelog.db");
+        let db = Database::open(&database_path).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&database_path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        sqlx::query("UPDATE ai_analyses SET status = 'failed', error_message = 'アプリ終了により解析が中断されました', completed_at = datetime('now') WHERE status IN ('pending', 'running')")
+            .execute(db.pool())
+            .await?;
+        sqlx::query("UPDATE activity_workflows SET state = 'assessable', version = version + 1, updated_at = datetime('now') WHERE state = 'analysis_running' AND (SELECT status FROM ai_analyses WHERE activity_id = activity_workflows.activity_id ORDER BY created_at DESC, rowid DESC LIMIT 1) = 'failed'")
+            .execute(db.pool())
+            .await?;
+        sqlx::query("UPDATE quest_generation_runs SET status = 'failed', error_message = 'アプリ終了によりクエスト生成が中断されました', completed_at = datetime('now') WHERE status IN ('pending', 'running')")
             .execute(db.pool())
             .await?;
         let growth = GrowthService::new(db.clone());

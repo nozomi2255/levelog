@@ -22,8 +22,16 @@ pub enum ServiceError {
     NotFound(&'static str),
     #[error("analysis must have succeeded before it can be confirmed")]
     AnalysisNotConfirmable,
+    #[error("analysis is no longer running")]
+    AnalysisNotRunning,
+    #[error("an analysis is already pending or running for this activity")]
+    AnalysisAlreadyRunning,
+    #[error("the activity has an unanswered interview question")]
+    InterviewQuestionPending,
     #[error("candidate {0} does not belong to analysis")]
     InvalidCandidate(String),
+    #[error("invalid edited candidate: {0}")]
+    InvalidCandidateEdit(String),
     #[error("every analysis candidate must have exactly one decision")]
     IncompleteCandidateDecisions,
     #[error("skill {0} is not in the fixed catalog")]
@@ -32,6 +40,8 @@ pub enum ServiceError {
     InvalidQuestTransition { from: String, to: String },
     #[error("quest must be completed before reflection")]
     QuestNotReflectable,
+    #[error("quest generation run is no longer active")]
+    QuestGenerationNotRunning,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +67,8 @@ pub struct CandidateDecision {
     pub decision: CandidateDecisionValue,
     pub edited_reason: Option<String>,
     pub edited_evidence: Option<String>,
+    pub edited_skill_id: Option<String>,
+    pub edited_specialized_skill_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -127,6 +139,61 @@ impl GrowthService {
         let mut tx = self.db.pool().begin().await?;
         sqlx::query("INSERT INTO activities (id, occurred_on, action_text, challenge_text, outcome_text, created_at) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(&id).bind(&input.occurred_on).bind(&input.action_text).bind(&input.challenge_text).bind(&input.outcome_text).bind(&now).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO activity_workflows (activity_id, state, version, updated_at) VALUES (?, 'assessable', 1, ?)")
+            .bind(&id)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        let reason_key = format!("activity:{id}");
+        self.award_xp(
+            &mut tx,
+            XpEvent {
+                amount: ACTIVITY_XP,
+                reason: XpReason::ActivitySaved,
+                key: &reason_key,
+                activity_id: Some(&id),
+                analysis_id: None,
+                quest_id: None,
+                description: "活動を記録",
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(id)
+    }
+
+    /// Saves the user's unstructured capture, its compatibility activity row, workflow state,
+    /// and deterministic activity XP as one unit.
+    pub async fn quick_capture_activity(
+        &self,
+        occurred_on: &str,
+        raw_text: &str,
+        capture_mode: &str,
+    ) -> Result<String, ServiceError> {
+        let id = Uuid::new_v4().to_string();
+        let capture_id = Uuid::new_v4().to_string();
+        let now = utc_now();
+        let mut tx = self.db.pool().begin().await?;
+        sqlx::query("INSERT INTO activities (id, occurred_on, action_text, challenge_text, outcome_text, created_at) VALUES (?, ?, ?, '', '', ?)")
+            .bind(&id)
+            .bind(occurred_on)
+            .bind(raw_text)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO activity_captures (id, activity_id, raw_text, capture_mode, created_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(capture_id)
+            .bind(&id)
+            .bind(raw_text)
+            .bind(capture_mode)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO activity_workflows (activity_id, state, version, updated_at) VALUES (?, 'captured', 1, ?)")
+            .bind(&id)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
         let reason_key = format!("activity:{id}");
         self.award_xp(
             &mut tx,
@@ -147,8 +214,34 @@ impl GrowthService {
 
     pub async fn create_analysis(&self, input: NewAnalysis) -> Result<String, ServiceError> {
         let id = Uuid::new_v4().to_string();
+        let activity_id = input.activity_id.clone();
+        let mut tx = self.db.pool().begin().await?;
+        let open_question_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM interview_sessions WHERE activity_id = ? AND status IN ('pending', 'deferred')",
+        )
+        .bind(&activity_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if open_question_count > 0 {
+            return Err(ServiceError::InterviewQuestionPending);
+        }
+        let running_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM ai_analyses WHERE activity_id = ? AND status IN ('pending', 'running')",
+        )
+        .bind(&activity_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if running_count > 0 {
+            return Err(ServiceError::AnalysisAlreadyRunning);
+        }
         sqlx::query("INSERT INTO ai_analyses (id, activity_id, status, submitted_payload, provider, model, codex_version, prompt_version, schema_version, created_at) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)")
-            .bind(&id).bind(input.activity_id).bind(input.submitted_payload).bind(input.provider).bind(input.model).bind(input.codex_version).bind(input.prompt_version).bind(input.schema_version).bind(utc_now()).execute(self.db.pool()).await?;
+            .bind(&id).bind(&activity_id).bind(input.submitted_payload).bind(input.provider).bind(input.model).bind(input.codex_version).bind(input.prompt_version).bind(input.schema_version).bind(utc_now()).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO activity_workflows (activity_id, state, version, updated_at) VALUES (?, 'analysis_running', 1, ?) ON CONFLICT(activity_id) DO UPDATE SET state = 'analysis_running', version = activity_workflows.version + 1, updated_at = excluded.updated_at")
+            .bind(activity_id)
+            .bind(utc_now())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
         Ok(id)
     }
 
@@ -156,25 +249,75 @@ impl GrowthService {
         &self,
         analysis_id: &str,
         raw_result_json: &str,
-        candidates: Vec<(String, f64, String, String)>,
+        candidates: Vec<(String, Option<String>, f64, String, String)>,
+        next_question_json: Option<&str>,
+        prompt_version: &str,
+        schema_version: &str,
     ) -> Result<(), ServiceError> {
         let mut tx = self.db.pool().begin().await?;
-        let exists = sqlx::query("SELECT id FROM ai_analyses WHERE id = ?")
+        let analysis = sqlx::query("SELECT activity_id FROM ai_analyses WHERE id = ?")
             .bind(analysis_id)
             .fetch_optional(&mut *tx)
             .await?
-            .is_some();
-        if !exists {
-            return Err(ServiceError::NotFound("analysis"));
+            .ok_or(ServiceError::NotFound("analysis"))?;
+        let activity_id: String = analysis.get("activity_id");
+        let completed = sqlx::query("UPDATE ai_analyses SET status = 'succeeded', raw_result_json = ?, completed_at = ? WHERE id = ? AND status = 'running'")
+            .bind(raw_result_json)
+            .bind(utc_now())
+            .bind(analysis_id)
+            .execute(&mut *tx)
+            .await?;
+        if completed.rows_affected() != 1 {
+            return Err(ServiceError::AnalysisNotRunning);
         }
-        sqlx::query("UPDATE ai_analyses SET status = 'succeeded', raw_result_json = ?, completed_at = ? WHERE id = ?") .bind(raw_result_json).bind(utc_now()).bind(analysis_id).execute(&mut *tx).await?;
-        for (skill_id, confidence, reason, evidence) in candidates {
+        let revision: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(MAX(revision), 0) + 1 FROM activity_structures WHERE activity_id = ?",
+        )
+        .bind(&activity_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO activity_structures (id, activity_id, analysis_id, revision, structured_json, source, prompt_version, schema_version, created_at) VALUES (?, ?, ?, ?, ?, 'codex_analysis', ?, ?, ?)")
+            .bind(Uuid::new_v4().to_string())
+            .bind(&activity_id)
+            .bind(analysis_id)
+            .bind(revision)
+            .bind(raw_result_json)
+            .bind(prompt_version)
+            .bind(schema_version)
+            .bind(utc_now())
+            .execute(&mut *tx)
+            .await?;
+        for (skill_id, specialized_name, confidence, reason, evidence) in candidates {
             if !skill_exists(&mut tx, &skill_id).await? {
                 return Err(ServiceError::UnknownSkill(skill_id));
             }
-            sqlx::query("INSERT INTO skill_candidates (id, analysis_id, skill_id, confidence, reason, evidence) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(analysis_id, skill_id) DO UPDATE SET confidence = excluded.confidence, reason = excluded.reason, evidence = excluded.evidence")
-                .bind(Uuid::new_v4().to_string()).bind(analysis_id).bind(skill_id).bind(confidence).bind(reason).bind(evidence).execute(&mut *tx).await?;
+            let specialized_name = validate_specialized_name(specialized_name)?;
+            let normalized = specialized_name.as_deref().map(normalize_specialized_name);
+            sqlx::query("INSERT INTO skill_candidates (id, analysis_id, skill_id, specialized_skill_name, normalized_specialized_skill_name, confidence, reason, evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(analysis_id, skill_id) DO UPDATE SET specialized_skill_name = excluded.specialized_skill_name, normalized_specialized_skill_name = excluded.normalized_specialized_skill_name, confidence = excluded.confidence, reason = excluded.reason, evidence = excluded.evidence")
+                .bind(Uuid::new_v4().to_string()).bind(analysis_id).bind(skill_id).bind(specialized_name).bind(normalized).bind(confidence).bind(reason).bind(evidence).execute(&mut *tx).await?;
         }
+        let workflow_state = if let Some(question_json) = next_question_json {
+            sqlx::query("INSERT INTO interview_sessions (id, activity_id, analysis_id, status, current_question_json, prompt_version, schema_version, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)")
+                .bind(Uuid::new_v4().to_string())
+                .bind(&activity_id)
+                .bind(analysis_id)
+                .bind(question_json)
+                .bind(prompt_version)
+                .bind(schema_version)
+                .bind(utc_now())
+                .bind(utc_now())
+                .execute(&mut *tx)
+                .await?;
+            "needs_input"
+        } else {
+            "review_pending"
+        };
+        sqlx::query("UPDATE activity_workflows SET state = ?, version = version + 1, updated_at = ? WHERE activity_id = ?")
+            .bind(workflow_state)
+            .bind(utc_now())
+            .bind(&activity_id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -201,6 +344,23 @@ impl GrowthService {
         if status != "succeeded" {
             return Err(ServiceError::AnalysisNotConfirmable);
         }
+        let latest_analysis_id: String = sqlx::query_scalar(
+            "SELECT id FROM ai_analyses WHERE activity_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+        )
+        .bind(&activity_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if latest_analysis_id != analysis_id {
+            return Err(ServiceError::AnalysisNotConfirmable);
+        }
+        let workflow_state: Option<String> =
+            sqlx::query_scalar("SELECT state FROM activity_workflows WHERE activity_id = ?")
+                .bind(&activity_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if workflow_state.as_deref() != Some("review_pending") {
+            return Err(ServiceError::AnalysisNotConfirmable);
+        }
         let candidate_count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM skill_candidates WHERE analysis_id = ?")
                 .bind(analysis_id)
@@ -216,38 +376,100 @@ impl GrowthService {
         }
         for decision in decisions {
             let candidate = sqlx::query(
-                "SELECT skill_id, reason, evidence FROM skill_candidates WHERE id = ? AND analysis_id = ?",
+                "SELECT skill_id, specialized_skill_name, reason, evidence FROM skill_candidates WHERE id = ? AND analysis_id = ?",
             )
             .bind(&decision.candidate_id)
             .bind(analysis_id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| ServiceError::InvalidCandidate(decision.candidate_id.clone()))?;
-            let skill_id: String = candidate.get("skill_id");
+            let original_skill_id: String = candidate.get("skill_id");
+            let is_edited = matches!(decision.decision, CandidateDecisionValue::Edited);
+            let edited_reason = if is_edited {
+                Some(validate_required_candidate_edit(
+                    decision.edited_reason.as_deref(),
+                    "理由",
+                )?)
+            } else {
+                None
+            };
+            let edited_evidence = if is_edited {
+                Some(validate_required_candidate_edit(
+                    decision.edited_evidence.as_deref(),
+                    "証拠",
+                )?)
+            } else {
+                None
+            };
+            let skill_id = if is_edited {
+                decision.edited_skill_id.unwrap_or(original_skill_id)
+            } else {
+                original_skill_id
+            };
+            if !skill_exists(&mut tx, &skill_id).await? {
+                return Err(ServiceError::UnknownSkill(skill_id));
+            }
+            let original_specialized_name: Option<String> = candidate.get("specialized_skill_name");
+            let specialized_name = validate_specialized_name(if is_edited {
+                decision
+                    .edited_specialized_skill_name
+                    .or(original_specialized_name)
+            } else {
+                original_specialized_name
+            })?;
+            let normalized_specialized_name =
+                specialized_name.as_deref().map(normalize_specialized_name);
+            let duplicate_candidate: Option<String> = sqlx::query_scalar(
+                "SELECT id FROM skill_candidates WHERE analysis_id = ? AND skill_id = ? AND id != ? LIMIT 1",
+            )
+            .bind(analysis_id)
+            .bind(&skill_id)
+            .bind(&decision.candidate_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if duplicate_candidate.is_some() {
+                return Err(ServiceError::InvalidCandidate(format!(
+                    "canonical skill {skill_id} is already used by another candidate"
+                )));
+            }
             let candidate_reason: String = candidate.get("reason");
             let candidate_evidence: String = candidate.get("evidence");
             let now = utc_now();
             let new_status = decision.decision.as_str();
-            let edited_reason = decision.edited_reason.as_deref();
-            let edited_evidence = decision.edited_evidence.as_deref();
-            sqlx::query("UPDATE skill_candidates SET decision = ?, edited_reason = ?, edited_evidence = ?, decided_at = ? WHERE id = ?")
+            sqlx::query("UPDATE skill_candidates SET skill_id = ?, specialized_skill_name = ?, normalized_specialized_skill_name = ?, decision = ?, edited_reason = ?, edited_evidence = ?, decided_at = ? WHERE id = ?")
+                .bind(&skill_id)
+                .bind(&specialized_name)
+                .bind(&normalized_specialized_name)
                 .bind(new_status)
-                .bind(edited_reason)
-                .bind(edited_evidence)
+                .bind(edited_reason.as_deref())
+                .bind(edited_evidence.as_deref())
                 .bind(&now)
                 .bind(&decision.candidate_id)
                 .execute(&mut *tx)
                 .await?;
             if decision.decision.creates_observation() {
-                let evidence = decision.edited_evidence.unwrap_or(candidate_evidence);
-                let _reason = decision.edited_reason.unwrap_or(candidate_reason);
-                sqlx::query("INSERT INTO skill_observations (id, activity_id, analysis_id, skill_id, evidence, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(analysis_id, skill_id) DO NOTHING")
-                    .bind(Uuid::new_v4().to_string()).bind(&activity_id).bind(analysis_id).bind(skill_id).bind(evidence).bind(now).execute(&mut *tx).await?;
+                let evidence = if is_edited {
+                    edited_evidence.clone().unwrap_or(candidate_evidence)
+                } else {
+                    candidate_evidence
+                };
+                let _reason = if is_edited {
+                    edited_reason.clone().unwrap_or(candidate_reason)
+                } else {
+                    candidate_reason
+                };
+                sqlx::query("INSERT INTO skill_observations (id, activity_id, analysis_id, skill_id, specialized_skill_name, normalized_specialized_skill_name, evidence, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(analysis_id, skill_id) DO NOTHING")
+                    .bind(Uuid::new_v4().to_string()).bind(&activity_id).bind(analysis_id).bind(skill_id).bind(specialized_name).bind(normalized_specialized_name).bind(evidence).bind(now).execute(&mut *tx).await?;
             }
         }
         sqlx::query("UPDATE ai_analyses SET status = 'confirmed', confirmed_at = ? WHERE id = ?")
             .bind(utc_now())
             .bind(analysis_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE activity_workflows SET state = 'confirmed', version = version + 1, updated_at = ? WHERE activity_id = ?")
+            .bind(utc_now())
+            .bind(&activity_id)
             .execute(&mut *tx)
             .await?;
         let reason_key = format!("analysis:{analysis_id}:confirmed");
@@ -279,6 +501,36 @@ impl GrowthService {
         let now = utc_now();
         sqlx::query("INSERT INTO quests (id, template_id, title, description, status, target_skill_id, difficulty, estimated_minutes, success_criteria_json, evidence_prompt, scheduled_on, created_at, updated_at) VALUES (?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(&id).bind(input.template_id).bind(input.title).bind(input.description).bind(input.target_skill_id).bind(input.difficulty).bind(input.estimated_minutes).bind(input.success_criteria_json).bind(input.evidence_prompt).bind(input.scheduled_on).bind(&now).bind(&now).execute(self.db.pool()).await?;
+        Ok(id)
+    }
+
+    pub async fn create_quest_from_generation(
+        &self,
+        input: NewQuest,
+        run_id: &str,
+        raw_result_json: &str,
+    ) -> Result<String, ServiceError> {
+        let mut tx = self.db.pool().begin().await?;
+        if let Some(skill) = &input.target_skill_id
+            && !skill_exists(&mut tx, skill).await?
+        {
+            return Err(ServiceError::UnknownSkill(skill.clone()));
+        }
+        let id = Uuid::new_v4().to_string();
+        let now = utc_now();
+        sqlx::query("INSERT INTO quests (id, template_id, title, description, status, target_skill_id, difficulty, estimated_minutes, success_criteria_json, evidence_prompt, scheduled_on, created_at, updated_at) VALUES (?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(&id).bind(input.template_id).bind(input.title).bind(input.description).bind(input.target_skill_id).bind(input.difficulty).bind(input.estimated_minutes).bind(input.success_criteria_json).bind(input.evidence_prompt).bind(input.scheduled_on).bind(&now).bind(&now).execute(&mut *tx).await?;
+        let completed = sqlx::query("UPDATE quest_generation_runs SET status = 'succeeded', quest_id = ?, raw_result_json = ?, completed_at = ? WHERE id = ? AND status = 'running'")
+            .bind(&id)
+            .bind(raw_result_json)
+            .bind(&now)
+            .bind(run_id)
+            .execute(&mut *tx)
+            .await?;
+        if completed.rows_affected() != 1 {
+            return Err(ServiceError::QuestGenerationNotRunning);
+        }
+        tx.commit().await?;
         Ok(id)
     }
 
@@ -376,6 +628,45 @@ impl GrowthService {
 fn utc_now() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
+
+fn validate_specialized_name(name: Option<String>) -> Result<Option<String>, ServiceError> {
+    let Some(name) = name else { return Ok(None) };
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > 80 {
+        return Err(ServiceError::InvalidCandidate(
+            "specialized skill name must be at most 80 characters".into(),
+        ));
+    }
+    Ok(Some(trimmed.to_owned()))
+}
+
+fn validate_required_candidate_edit(
+    value: Option<&str>,
+    label: &str,
+) -> Result<String, ServiceError> {
+    let value = value.map(str::trim).unwrap_or_default();
+    if value.is_empty() {
+        return Err(ServiceError::InvalidCandidateEdit(format!(
+            "編集して採用する場合は{label}を入力してください"
+        )));
+    }
+    if value.chars().count() > 1_000 {
+        return Err(ServiceError::InvalidCandidateEdit(format!(
+            "{label}は1000文字以内で入力してください"
+        )));
+    }
+    Ok(value.to_owned())
+}
+
+fn normalize_specialized_name(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
 fn summary(total_xp: i64) -> XpSummary {
     XpSummary {
         total_xp,
@@ -429,6 +720,15 @@ mod tests {
         let db = Database::open(file.path()).await.unwrap();
         (file, GrowthService::new(db))
     }
+    async fn mark_analysis_running(service: &GrowthService, analysis_id: &str) {
+        sqlx::query(
+            "UPDATE ai_analyses SET status = 'running' WHERE id = ? AND status = 'pending'",
+        )
+        .bind(analysis_id)
+        .execute(service.db().pool())
+        .await
+        .unwrap();
+    }
     #[tokio::test]
     async fn activity_xp_is_recorded_once() {
         let (_file, service) = service().await;
@@ -449,6 +749,257 @@ mod tests {
             .get("total");
         assert_eq!(total, 10);
     }
+
+    #[tokio::test]
+    async fn quick_capture_saves_compatibility_row_capture_workflow_and_xp_atomically() {
+        let (_file, service) = service().await;
+        let activity = service
+            .quick_capture_activity("2026-07-20", "  障害対応の手順を整理した\n", "quick")
+            .await
+            .unwrap();
+        let saved: (String, String, String, String) = sqlx::query_as(
+            "SELECT a.action_text, c.raw_text, c.capture_mode, w.state FROM activities a JOIN activity_captures c ON c.activity_id = a.id JOIN activity_workflows w ON w.activity_id = a.id WHERE a.id = ?",
+        )
+        .bind(&activity)
+        .fetch_one(service.db().pool())
+        .await
+        .unwrap();
+        assert_eq!(
+            saved,
+            (
+                "  障害対応の手順を整理した\n".into(),
+                "  障害対応の手順を整理した\n".into(),
+                "quick".into(),
+                "captured".into(),
+            )
+        );
+        let xp: (i64, String) =
+            sqlx::query_as("SELECT amount, reason_key FROM xp_events WHERE activity_id = ?")
+                .bind(&activity)
+                .fetch_one(service.db().pool())
+                .await
+                .unwrap();
+        assert_eq!(xp, (10, format!("activity:{activity}")));
+    }
+
+    #[tokio::test]
+    async fn activity_allows_only_one_running_analysis_and_blocks_reanalysis_with_open_question() {
+        let (_file, service) = service().await;
+        let activity = service
+            .quick_capture_activity("2026-07-20", "SQLを速くした", "guided")
+            .await
+            .unwrap();
+        let analysis = service
+            .create_analysis(NewAnalysis {
+                activity_id: activity.clone(),
+                submitted_payload: "{}".into(),
+                provider: "test".into(),
+                model: None,
+                codex_version: None,
+                prompt_version: "v2".into(),
+                schema_version: "v2".into(),
+            })
+            .await
+            .unwrap();
+        assert!(matches!(
+            service
+                .create_analysis(NewAnalysis {
+                    activity_id: activity.clone(),
+                    submitted_payload: "{}".into(),
+                    provider: "test".into(),
+                    model: None,
+                    codex_version: None,
+                    prompt_version: "v2".into(),
+                    schema_version: "v2".into(),
+                })
+                .await,
+            Err(ServiceError::AnalysisAlreadyRunning)
+        ));
+        mark_analysis_running(&service, &analysis).await;
+        service
+            .save_analysis_result(
+                &analysis,
+                "{}",
+                vec![],
+                Some(r#"{"questionId":"measurement","target":"measurement","text":"どれくらい改善しましたか？","answerType":"text","choices":[],"whyItMatters":"成果を確認するため"}"#),
+                "v2",
+                "v2",
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            service
+                .create_analysis(NewAnalysis {
+                    activity_id: activity,
+                    submitted_payload: "{}".into(),
+                    provider: "test".into(),
+                    model: None,
+                    codex_version: None,
+                    prompt_version: "v2".into(),
+                    schema_version: "v2".into(),
+                })
+                .await,
+            Err(ServiceError::InterviewQuestionPending)
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancelled_analysis_cannot_publish_results_or_derived_rows() {
+        let (_file, service) = service().await;
+        let activity = service
+            .quick_capture_activity("2026-07-20", "SQLを速くした", "quick")
+            .await
+            .unwrap();
+        let analysis = service
+            .create_analysis(NewAnalysis {
+                activity_id: activity,
+                submitted_payload: "{}".into(),
+                provider: "test".into(),
+                model: None,
+                codex_version: None,
+                prompt_version: "v2".into(),
+                schema_version: "v2".into(),
+            })
+            .await
+            .unwrap();
+        mark_analysis_running(&service, &analysis).await;
+        sqlx::query("UPDATE ai_analyses SET status = 'cancelled' WHERE id = ?")
+            .bind(&analysis)
+            .execute(service.db().pool())
+            .await
+            .unwrap();
+        assert!(matches!(
+            service
+                .save_analysis_result(
+                    &analysis,
+                    r#"{"summary":"late"}"#,
+                    vec![(
+                        "technical.validation".into(),
+                        None,
+                        0.8,
+                        "reason".into(),
+                        "evidence".into(),
+                    )],
+                    None,
+                    "v2",
+                    "v2",
+                )
+                .await,
+            Err(ServiceError::AnalysisNotRunning)
+        ));
+        let status: String = sqlx::query_scalar("SELECT status FROM ai_analyses WHERE id = ?")
+            .bind(&analysis)
+            .fetch_one(service.db().pool())
+            .await
+            .unwrap();
+        let derived: i64 = sqlx::query_scalar(
+            "SELECT (SELECT COUNT(*) FROM activity_structures WHERE analysis_id = ?) + (SELECT COUNT(*) FROM skill_candidates WHERE analysis_id = ?) + (SELECT COUNT(*) FROM interview_sessions WHERE analysis_id = ?)",
+        )
+        .bind(&analysis)
+        .bind(&analysis)
+        .bind(&analysis)
+        .fetch_one(service.db().pool())
+        .await
+        .unwrap();
+        assert_eq!(status, "cancelled");
+        assert_eq!(derived, 0);
+    }
+
+    #[tokio::test]
+    async fn interview_question_blocks_confirmation_without_creating_observation_or_xp() {
+        let (_file, service) = service().await;
+        let activity = service
+            .quick_capture_activity("2026-07-20", "SQLを速くした", "guided")
+            .await
+            .unwrap();
+        let analysis = service
+            .create_analysis(NewAnalysis {
+                activity_id: activity.clone(),
+                submitted_payload: "{}".into(),
+                provider: "test".into(),
+                model: None,
+                codex_version: None,
+                prompt_version: "v2".into(),
+                schema_version: "v2".into(),
+            })
+            .await
+            .unwrap();
+        let question = r#"{"questionId":"measurement","target":"measurement","prompt":"どれくらい改善しましたか？","answerType":"text","choices":[]}"#;
+        mark_analysis_running(&service, &analysis).await;
+        service
+            .save_analysis_result(
+                &analysis,
+                "{}",
+                vec![(
+                    "thinking.problem_decomposition".into(),
+                    Some("SQL性能調査".into()),
+                    0.8,
+                    "reason".into(),
+                    "evidence".into(),
+                )],
+                Some(question),
+                "v2",
+                "v2",
+            )
+            .await
+            .unwrap();
+        let candidate: String =
+            sqlx::query_scalar("SELECT id FROM skill_candidates WHERE analysis_id = ?")
+                .bind(&analysis)
+                .fetch_one(service.db().pool())
+                .await
+                .unwrap();
+        assert!(matches!(
+            service
+                .confirm_analysis(
+                    &analysis,
+                    vec![CandidateDecision {
+                        candidate_id: candidate,
+                        decision: CandidateDecisionValue::Accepted,
+                        edited_reason: None,
+                        edited_evidence: None,
+                        edited_skill_id: None,
+                        edited_specialized_skill_name: None,
+                    }],
+                )
+                .await,
+            Err(ServiceError::AnalysisNotConfirmable)
+        ));
+        let workflow: String =
+            sqlx::query_scalar("SELECT state FROM activity_workflows WHERE activity_id = ?")
+                .bind(&activity)
+                .fetch_one(service.db().pool())
+                .await
+                .unwrap();
+        let structure_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM activity_structures WHERE activity_id = ?")
+                .bind(&activity)
+                .fetch_one(service.db().pool())
+                .await
+                .unwrap();
+        let session_status: String =
+            sqlx::query_scalar("SELECT status FROM interview_sessions WHERE analysis_id = ?")
+                .bind(&analysis)
+                .fetch_one(service.db().pool())
+                .await
+                .unwrap();
+        let observation_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM skill_observations WHERE analysis_id = ?")
+                .bind(&analysis)
+                .fetch_one(service.db().pool())
+                .await
+                .unwrap();
+        let xp: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(amount), 0) FROM xp_events")
+            .fetch_one(service.db().pool())
+            .await
+            .unwrap();
+        assert_eq!(workflow, "needs_input");
+        assert_eq!(structure_count, 1);
+        assert_eq!(session_status, "pending");
+        assert_eq!(observation_count, 0);
+        assert_eq!(xp, 10);
+    }
+
     #[tokio::test]
     async fn confirmation_creates_only_approved_evidence_and_is_idempotent() {
         let (_file, service) = service().await;
@@ -473,16 +1024,21 @@ mod tests {
             })
             .await
             .unwrap();
+        mark_analysis_running(&service, &analysis).await;
         service
             .save_analysis_result(
                 &analysis,
                 "{}",
                 vec![(
                     "communication.explanation".into(),
+                    Some("SQL性能分析".into()),
                     0.8,
                     "reason".into(),
                     "evidence".into(),
                 )],
+                None,
+                "v2",
+                "v2",
             )
             .await
             .unwrap();
@@ -512,14 +1068,32 @@ mod tests {
                 .await
                 .unwrap()
                 .get("id");
+        assert!(matches!(
+            service
+                .confirm_analysis(
+                    &analysis,
+                    vec![CandidateDecision {
+                        candidate_id: candidate.clone(),
+                        decision: CandidateDecisionValue::Edited,
+                        edited_reason: Some(" ".into()),
+                        edited_evidence: Some(String::new()),
+                        edited_skill_id: Some("thinking.problem_decomposition".into()),
+                        edited_specialized_skill_name: None,
+                    }],
+                )
+                .await,
+            Err(ServiceError::InvalidCandidateEdit(_))
+        ));
         let first = service
             .confirm_analysis(
                 &analysis,
                 vec![CandidateDecision {
                     candidate_id: candidate.clone(),
-                    decision: CandidateDecisionValue::Accepted,
-                    edited_reason: None,
-                    edited_evidence: None,
+                    decision: CandidateDecisionValue::Edited,
+                    edited_reason: Some("問題を分解した".into()),
+                    edited_evidence: Some("SQLの原因候補を切り分けた".into()),
+                    edited_skill_id: Some("thinking.problem_decomposition".into()),
+                    edited_specialized_skill_name: Some(" SQL   性能調査 ".into()),
                 }],
             )
             .await
@@ -533,6 +1107,21 @@ mod tests {
             .unwrap()
             .get("count");
         assert_eq!(observations, 1);
+        let observation: (String, String, String) = sqlx::query_as(
+            "SELECT skill_id, specialized_skill_name, normalized_specialized_skill_name FROM skill_observations WHERE analysis_id = ?",
+        )
+        .bind(&analysis)
+        .fetch_one(service.db().pool())
+        .await
+        .unwrap();
+        assert_eq!(
+            observation,
+            (
+                "thinking.problem_decomposition".into(),
+                "SQL   性能調査".into(),
+                "sql 性能調査".into(),
+            )
+        );
         let raw_activity_after: (String, String, String) = sqlx::query_as(
             "SELECT action_text, challenge_text, outcome_text FROM activities LIMIT 1",
         )
@@ -586,6 +1175,75 @@ mod tests {
             .unwrap();
         assert_eq!(one.total_xp, 40);
         assert_eq!(two.total_xp, 40);
+    }
+
+    #[tokio::test]
+    async fn quest_and_generation_run_complete_in_one_transaction() {
+        let (_file, service) = service().await;
+        let now = utc_now();
+        let activity_id = service
+            .quick_capture_activity("2026-07-20", "確認事項を整理した", "quick")
+            .await
+            .unwrap();
+        let analysis_id = service
+            .create_analysis(NewAnalysis {
+                activity_id: activity_id.clone(),
+                submitted_payload: "{}".into(),
+                provider: "test".into(),
+                model: None,
+                codex_version: None,
+                prompt_version: "v2".into(),
+                schema_version: "v2".into(),
+            })
+            .await
+            .unwrap();
+        for (run_id, status) in [("run-ok", "running"), ("run-stale", "failed")] {
+            sqlx::query("INSERT INTO quest_generation_runs (id, activity_id, analysis_id, status, submitted_payload, provider, prompt_version, schema_version, created_at) VALUES (?, ?, ?, ?, '{}', 'test', 'v1', 'v1', ?)")
+                .bind(run_id)
+                .bind(&activity_id)
+                .bind(&analysis_id)
+                .bind(status)
+                .bind(&now)
+                .execute(service.db().pool())
+                .await
+                .unwrap();
+        }
+        let input = || NewQuest {
+            template_id: "clarify_once".into(),
+            title: "確認する".into(),
+            description: "短く確認".into(),
+            target_skill_id: Some("communication.clarification".into()),
+            difficulty: 1,
+            estimated_minutes: 10,
+            success_criteria_json: r#"["確認した"]"#.into(),
+            evidence_prompt: "結果".into(),
+            scheduled_on: None,
+        };
+        let quest_id = service
+            .create_quest_from_generation(input(), "run-ok", r#"{"title":"確認する"}"#)
+            .await
+            .unwrap();
+        let completed: (String, String, String) = sqlx::query_as(
+            "SELECT status, quest_id, raw_result_json FROM quest_generation_runs WHERE id = 'run-ok'",
+        )
+        .fetch_one(service.db().pool())
+        .await
+        .unwrap();
+        assert_eq!(completed.0, "succeeded");
+        assert_eq!(completed.1, quest_id);
+        assert_eq!(completed.2, r#"{"title":"確認する"}"#);
+
+        assert!(matches!(
+            service
+                .create_quest_from_generation(input(), "run-stale", "{}")
+                .await,
+            Err(ServiceError::QuestGenerationNotRunning)
+        ));
+        let quest_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM quests")
+            .fetch_one(service.db().pool())
+            .await
+            .unwrap();
+        assert_eq!(quest_count, 1, "failed run must roll back quest insert");
     }
 
     #[tokio::test]

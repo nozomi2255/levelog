@@ -10,6 +10,8 @@ pub enum AppError {
     NotFound(String),
     #[error("現在の状態では操作できません: {0}")]
     InvalidState(String),
+    #[error("データが別の操作で更新されました: {0}")]
+    Conflict(String),
     #[error("データベース処理に失敗しました: {0}")]
     Database(String),
     #[error("Codexを利用できません: {0}")]
@@ -39,8 +41,20 @@ impl From<crate::application::ServiceError> for AppError {
             crate::application::ServiceError::AnalysisNotConfirmable => {
                 Self::InvalidState("解析が確認可能な状態ではありません".into())
             }
+            crate::application::ServiceError::AnalysisNotRunning => {
+                Self::InvalidState("解析はすでに終了またはキャンセルされています".into())
+            }
+            crate::application::ServiceError::AnalysisAlreadyRunning => {
+                Self::InvalidState("この活動の解析はすでに実行中です".into())
+            }
+            crate::application::ServiceError::InterviewQuestionPending => {
+                Self::InvalidState("先に未回答の確認質問へ回答してください".into())
+            }
             crate::application::ServiceError::InvalidCandidate(id) => {
                 Self::Validation(format!("解析に属さない候補です: {id}"))
+            }
+            crate::application::ServiceError::InvalidCandidateEdit(message) => {
+                Self::Validation(message)
             }
             crate::application::ServiceError::IncompleteCandidateDecisions => {
                 Self::Validation("すべての分析候補に採用・編集・却下を一つ選んでください".into())
@@ -53,6 +67,9 @@ impl From<crate::application::ServiceError> for AppError {
             }
             crate::application::ServiceError::QuestNotReflectable => {
                 Self::InvalidState("完了したクエストだけ振り返りを保存できます".into())
+            }
+            crate::application::ServiceError::QuestGenerationNotRunning => {
+                Self::InvalidState("クエスト生成はすでに終了しています".into())
             }
             crate::application::ServiceError::Database(error) => Self::Database(error.to_string()),
         }

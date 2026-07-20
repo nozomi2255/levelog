@@ -4,13 +4,11 @@
 //! a typed analysis or proposal after the installed CLI proves that every required safety switch
 //! is available.
 
+pub mod discovery;
+
 use async_trait::async_trait;
 use serde::de::DeserializeOwned;
-use std::{
-    collections::BTreeSet,
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{collections::BTreeSet, path::PathBuf, time::Duration};
 use tempfile::TempDir;
 use thiserror::Error;
 use tokio::{io::AsyncWriteExt, process::Command, sync::watch, time::timeout};
@@ -25,8 +23,10 @@ pub const REQUIRED_FEATURES: [&str; 5] = [
     "computer_use",
     "in_app_browser",
 ];
-pub const ACTIVITY_SCHEMA_VERSION: &str = "activity-analysis.v1";
+pub const ACTIVITY_SCHEMA_VERSION: &str = "activity-analysis.v2";
 pub const QUEST_SCHEMA_VERSION: &str = "quest-proposal.v1";
+const MAX_CODEX_PAYLOAD_BYTES: usize = 512 * 1024;
+const MAX_CODEX_OUTPUT_BYTES: u64 = 1024 * 1024;
 
 const SKILL_IDS: [&str; 15] = [
     "thinking.information_structuring",
@@ -60,26 +60,60 @@ pub struct ProcessOutput {
     pub stderr: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct CodexJsonOutput<T> {
+    pub raw_json: String,
+    pub parsed: T,
+}
+
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum CodexError {
-    #[error("Codex CLI was not found at {0}")]
+    #[error("指定した場所にCodex CLIが見つかりません: {0}")]
     NotFound(String),
-    #[error("Codex CLI path must be absolute: {0}")]
+    #[error("Codex CLIは絶対パスで指定してください: {0}")]
     RelativePath(String),
-    #[error("Codex CLI is not logged in")]
+    #[error("Codex CLIにログインしていません。ターミナルで `codex login` を実行してください")]
     NotLoggedIn,
-    #[error("installed Codex CLI lacks required safety control: {0}")]
+    #[error("インストール済みCodex CLIは必要な安全機能に対応していません: {0}")]
     Incompatible(String),
-    #[error("Codex process timed out after 180 seconds")]
+    #[error("Codex処理が180秒でタイムアウトしました")]
     TimedOut,
-    #[error("Codex process was cancelled")]
+    #[error("Codex処理をキャンセルしました")]
     Cancelled,
-    #[error("Codex process failed: {0}")]
+    #[error("Codex処理に失敗しました: {0}")]
     Process(String),
-    #[error("Codex returned invalid JSON: {0}")]
+    #[error("Codexから正しいJSONが返りませんでした: {0}")]
     InvalidJson(String),
-    #[error("Codex returned output that violates {0}: {1}")]
+    #[error("Codex出力が{0}の形式に適合しません: {1}")]
     SchemaViolation(&'static str, String),
+    #[error("Codexから正しいJSONが返りませんでした: {message}")]
+    InvalidJsonOutput { message: String, raw_json: String },
+    #[error("Codex出力が{schema}の形式に適合しません: {message}")]
+    SchemaViolationOutput {
+        schema: &'static str,
+        message: String,
+        raw_json: String,
+    },
+}
+
+impl CodexError {
+    pub fn is_schema_retryable(&self) -> bool {
+        matches!(
+            self,
+            Self::InvalidJson(_)
+                | Self::SchemaViolation(_, _)
+                | Self::InvalidJsonOutput { .. }
+                | Self::SchemaViolationOutput { .. }
+        )
+    }
+
+    pub fn raw_output(&self) -> Option<&str> {
+        match self {
+            Self::InvalidJsonOutput { raw_json, .. }
+            | Self::SchemaViolationOutput { raw_json, .. } => Some(raw_json),
+            _ => None,
+        }
+    }
 }
 
 #[async_trait]
@@ -218,39 +252,102 @@ impl<R: ProcessRunner> CodexClient<R> {
         &self,
         payload: String,
         cancel: watch::Receiver<bool>,
-    ) -> Result<ActivityAnalysisOutput, CodexError> {
-        let result = self
+    ) -> Result<CodexJsonOutput<ActivityAnalysisOutput>, CodexError> {
+        let raw_json = self
             .exec_json(
                 ACTIVITY_SCHEMA_VERSION,
                 activity_schema(),
-                include_str!("../../../prompts/activity-analysis.v1.md"),
+                include_str!("../../../prompts/activity-analysis.v2.md"),
                 payload,
                 cancel,
             )
             .await?;
-        let output: ActivityAnalysisOutput = decode(result, ACTIVITY_SCHEMA_VERSION)?;
+        let output: ActivityAnalysisOutput = decode(raw_json.clone(), ACTIVITY_SCHEMA_VERSION)?;
         if output.summary.trim().is_empty()
+            || output.summary.chars().count() > 1_000
+            || output.outcomes.len() > 20
+            || output
+                .outcomes
+                .iter()
+                .any(|outcome| outcome.trim().is_empty() || outcome.chars().count() > 500)
+            || output.confirmed_facts.len() > 20
+            || output
+                .confirmed_facts
+                .iter()
+                .any(|fact| fact.trim().is_empty() || fact.chars().count() > 500)
+            || output.unconfirmed_facts.len() > 20
+            || output
+                .unconfirmed_facts
+                .iter()
+                .any(|fact| fact.trim().is_empty() || fact.chars().count() > 500)
+            || output.skill_candidates.len() > 15
             || output.skill_candidates.iter().any(|candidate| {
                 !SKILL_IDS.contains(&candidate.skill_id.as_str())
                     || !(0.0..=1.0).contains(&candidate.confidence)
                     || candidate.reason.trim().is_empty()
+                    || candidate.reason.chars().count() > 1_000
                     || candidate.evidence.trim().is_empty()
+                    || candidate.evidence.chars().count() > 1_000
+                    || candidate
+                        .specialized_skill_name
+                        .as_ref()
+                        .is_some_and(|name| name.trim().is_empty() || name.chars().count() > 80)
+            })
+            || output.next_question.as_ref().is_some_and(|question| {
+                !matches!(
+                    question.target.as_str(),
+                    "context"
+                        | "autonomy"
+                        | "outcome"
+                        | "difficulty"
+                        | "scope"
+                        | "support"
+                        | "repeatability"
+                        | "measurement"
+                ) || !matches!(
+                    question.answer_type.as_str(),
+                    "single_choice" | "text" | "number"
+                ) || !valid_question_id(&question.question_id)
+                    || question.text.trim().is_empty()
+                    || question.text.chars().count() > 500
+                    || question.why_it_matters.trim().is_empty()
+                    || question.why_it_matters.chars().count() > 500
+                    || question.choices.len() > 5
+                    || (question.answer_type == "single_choice" && question.choices.is_empty())
+                    || (question.answer_type != "single_choice" && !question.choices.is_empty())
+                    || question.choices.iter().any(|choice| {
+                        choice.value.trim().is_empty()
+                            || choice.value.chars().count() > 80
+                            || choice.label.trim().is_empty()
+                            || choice.label.chars().count() > 120
+                    })
+                    || question
+                        .choices
+                        .iter()
+                        .map(|choice| choice.value.as_str())
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                        != question.choices.len()
             })
         {
-            return Err(CodexError::SchemaViolation(
-                ACTIVITY_SCHEMA_VERSION,
-                "unknown skill or invalid candidate".into(),
-            ));
+            return Err(CodexError::SchemaViolationOutput {
+                schema: ACTIVITY_SCHEMA_VERSION,
+                message: "unknown skill or invalid candidate".into(),
+                raw_json,
+            });
         }
-        Ok(output)
+        Ok(CodexJsonOutput {
+            raw_json,
+            parsed: output,
+        })
     }
 
     pub async fn propose_quest(
         &self,
         payload: String,
         cancel: watch::Receiver<bool>,
-    ) -> Result<QuestProposalOutput, CodexError> {
-        let result = self
+    ) -> Result<CodexJsonOutput<QuestProposalOutput>, CodexError> {
+        let raw_json = self
             .exec_json(
                 QUEST_SCHEMA_VERSION,
                 quest_schema(),
@@ -259,7 +356,7 @@ impl<R: ProcessRunner> CodexClient<R> {
                 cancel,
             )
             .await?;
-        let output: QuestProposalOutput = decode(result, QUEST_SCHEMA_VERSION)?;
+        let output: QuestProposalOutput = decode(raw_json.clone(), QUEST_SCHEMA_VERSION)?;
         const TEMPLATES: [&str; 5] = [
             "clarify_once",
             "summarize_decision",
@@ -269,29 +366,53 @@ impl<R: ProcessRunner> CodexClient<R> {
         ];
         if !TEMPLATES.contains(&output.template_id.as_str())
             || !SKILL_IDS.contains(&output.target_skill_id.as_str())
+            || output.title.trim().is_empty()
+            || output.title.chars().count() > 120
+            || output.description.trim().is_empty()
+            || output.description.chars().count() > 1_000
             || !(5..=30).contains(&output.estimated_minutes)
             || !(1..=5).contains(&output.difficulty)
             || output.success_criteria.is_empty()
-            || output.success_criteria.iter().any(|x| x.trim().is_empty())
+            || output.success_criteria.len() > 5
+            || output
+                .success_criteria
+                .iter()
+                .any(|x| x.trim().is_empty() || x.chars().count() > 240)
+            || output.evidence_prompt.trim().is_empty()
+            || output.evidence_prompt.chars().count() > 500
         {
-            return Err(CodexError::SchemaViolation(
-                QUEST_SCHEMA_VERSION,
-                "invalid safe quest fields".into(),
-            ));
+            return Err(CodexError::SchemaViolationOutput {
+                schema: QUEST_SCHEMA_VERSION,
+                message: "invalid safe quest fields".into(),
+                raw_json,
+            });
         }
-        Ok(output)
+        Ok(CodexJsonOutput {
+            raw_json,
+            parsed: output,
+        })
     }
 
     async fn exec_json(
         &self,
         schema_version: &'static str,
-        schema: PathBuf,
+        schema_document: &'static str,
         prompt: &str,
         payload: String,
         cancel: watch::Receiver<bool>,
     ) -> Result<String, CodexError> {
+        if payload.len() > MAX_CODEX_PAYLOAD_BYTES {
+            return Err(CodexError::Process(format!(
+                "送信内容が大きすぎます（上限 {} KiB）",
+                MAX_CODEX_PAYLOAD_BYTES / 1024
+            )));
+        }
         self.probe().await?;
         let dir = empty_dir()?;
+        let schema = dir.path().join(format!("{schema_version}.schema.json"));
+        tokio::fs::write(&schema, schema_document)
+            .await
+            .map_err(|err| CodexError::Process(format!("schemaを書き出せません: {err}")))?;
         let output = dir.path().join("result.json");
         let mut args = vec![
             "exec".into(),
@@ -327,6 +448,14 @@ impl<R: ProcessRunner> CodexClient<R> {
             )
             .await?;
         require_success(&response)?;
+        let metadata = tokio::fs::metadata(&output)
+            .await
+            .map_err(|err| CodexError::InvalidJson(format!("{schema_version}: {err}")))?;
+        if metadata.len() > MAX_CODEX_OUTPUT_BYTES {
+            return Err(CodexError::InvalidJson(format!(
+                "{schema_version}: 出力が大きすぎます"
+            )));
+        }
         tokio::fs::read_to_string(&output)
             .await
             .map_err(|err| CodexError::InvalidJson(format!("{schema_version}: {err}")))
@@ -353,6 +482,21 @@ impl<R: ProcessRunner> CodexClient<R> {
     }
 }
 
+fn valid_question_id(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    value.len() <= 64
+        && (first.is_ascii_lowercase() || first.is_ascii_digit())
+        && chars.all(|character| {
+            character.is_ascii_lowercase()
+                || character.is_ascii_digit()
+                || character == '_'
+                || character == '-'
+        })
+}
+
 fn empty_dir() -> Result<TempDir, CodexError> {
     tempfile::Builder::new()
         .prefix("levelog-codex-")
@@ -371,16 +515,22 @@ fn require_success(output: &ProcessOutput) -> Result<(), CodexError> {
     }
 }
 fn decode<T: DeserializeOwned>(json: String, schema: &'static str) -> Result<T, CodexError> {
-    let value: serde_json::Value = serde_json::from_str(&json)
-        .map_err(|err| CodexError::InvalidJson(format!("{schema}: {err}")))?;
-    serde_json::from_value(value)
-        .map_err(|err| CodexError::SchemaViolation(schema, err.to_string()))
+    let value: serde_json::Value =
+        serde_json::from_str(&json).map_err(|err| CodexError::InvalidJsonOutput {
+            message: format!("{schema}: {err}"),
+            raw_json: json.clone(),
+        })?;
+    serde_json::from_value(value).map_err(|err| CodexError::SchemaViolationOutput {
+        schema,
+        message: err.to_string(),
+        raw_json: json,
+    })
 }
-fn activity_schema() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("schemas/activity-analysis.v1.schema.json")
+fn activity_schema() -> &'static str {
+    include_str!("../../../schemas/activity-analysis.v2.schema.json")
 }
-fn quest_schema() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("schemas/quest-proposal.v1.schema.json")
+fn quest_schema() -> &'static str {
+    include_str!("../../../schemas/quest-proposal.v1.schema.json")
 }
 
 #[cfg(test)]
@@ -491,14 +641,71 @@ mod tests {
     }
     #[test]
     fn schema_decode_rejects_non_json_and_schema_mismatch() {
-        assert!(matches!(
-            decode::<ActivityAnalysisOutput>("not json".into(), ACTIVITY_SCHEMA_VERSION),
-            Err(CodexError::InvalidJson(_))
-        ));
+        let invalid = decode::<ActivityAnalysisOutput>("not json".into(), ACTIVITY_SCHEMA_VERSION)
+            .unwrap_err();
+        assert!(matches!(&invalid, CodexError::InvalidJsonOutput { .. }));
+        assert_eq!(invalid.raw_output(), Some("not json"));
         assert!(matches!(
             decode::<ActivityAnalysisOutput>("{}".into(), ACTIVITY_SCHEMA_VERSION),
-            Err(CodexError::SchemaViolation(_, _))
+            Err(CodexError::SchemaViolationOutput { .. })
         ));
+        let missing_nullable = serde_json::json!({
+            "summary": "整理した",
+            "outcomes": [],
+            "confirmedFacts": [],
+            "unconfirmedFacts": [],
+            "skillCandidates": []
+        })
+        .to_string();
+        assert!(matches!(
+            decode::<ActivityAnalysisOutput>(missing_nullable, ACTIVITY_SCHEMA_VERSION),
+            Err(CodexError::SchemaViolationOutput { .. })
+        ));
+    }
+
+    #[test]
+    fn activity_v2_decodes_structured_question_and_specialized_skill() {
+        let output = decode::<ActivityAnalysisOutput>(
+            serde_json::json!({
+                "summary": "一覧APIの遅延原因を調べた",
+                "outcomes": ["SQLが原因候補だと分かった"],
+                "confirmedFacts": ["一覧APIを調査した"],
+                "unconfirmedFacts": ["改善後の速度は未測定"],
+                "skillCandidates": [{
+                    "skillId": "thinking.hypothesis_testing",
+                    "specializedSkillName": "SQL性能調査",
+                    "confidence": 0.72,
+                    "reason": "原因候補を検証している",
+                    "evidence": "SQLを原因候補として調べた"
+                }],
+                "nextQuestion": {
+                    "questionId": "outcome_measurement",
+                    "target": "measurement",
+                    "text": "改善前後の速度を確認できましたか？",
+                    "answerType": "single_choice",
+                    "choices": [
+                        { "value": "measured", "label": "数値で確認した" },
+                        { "value": "felt", "label": "体感では改善した" }
+                    ],
+                    "whyItMatters": "成果を事実と推測に分けるため"
+                }
+            })
+            .to_string(),
+            ACTIVITY_SCHEMA_VERSION,
+        )
+        .unwrap();
+        assert_eq!(output.confirmed_facts.len(), 1);
+        assert_eq!(
+            output.skill_candidates[0].specialized_skill_name.as_deref(),
+            Some("SQL性能調査")
+        );
+        assert_eq!(
+            output
+                .next_question
+                .as_ref()
+                .map(|question| question.target.as_str()),
+            Some("measurement")
+        );
     }
 
     #[tokio::test]
@@ -524,6 +731,6 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(!output.summary.trim().is_empty());
+        assert!(!output.parsed.summary.trim().is_empty());
     }
 }

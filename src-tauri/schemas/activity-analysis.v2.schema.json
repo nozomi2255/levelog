@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Levelog ActivityAnalysis v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "outcomes",
+    "confirmedFacts",
+    "unconfirmedFacts",
+    "skillCandidates",
+    "nextQuestion"
+  ],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "outcomes": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "confirmedFacts": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "unconfirmedFacts": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    },
+    "skillCandidates": {
+      "type": "array",
+      "maxItems": 15,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "skillId",
+          "specializedSkillName",
+          "confidence",
+          "reason",
+          "evidence"
+        ],
+        "properties": {
+          "skillId": {
+            "type": "string",
+            "enum": [
+              "thinking.information_structuring",
+              "thinking.problem_decomposition",
+              "thinking.hypothesis_testing",
+              "technical.technical_learning",
+              "technical.system_design",
+              "technical.validation",
+              "communication.clarification",
+              "communication.explanation",
+              "communication.documentation",
+              "execution.prioritization",
+              "execution.planning",
+              "execution.follow_through",
+              "interpersonal.listening",
+              "interpersonal.alignment",
+              "interpersonal.feedback"
+            ]
+          },
+          "specializedSkillName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      }
+    },
+    "nextQuestion": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "questionId",
+            "target",
+            "text",
+            "answerType",
+            "choices",
+            "whyItMatters"
+          ],
+          "properties": {
+            "questionId": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+            },
+            "target": {
+              "type": "string",
+              "enum": [
+                "context",
+                "autonomy",
+                "outcome",
+                "difficulty",
+                "scope",
+                "support",
+                "repeatability",
+                "measurement"
+              ]
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "answerType": {
+              "type": "string",
+              "enum": [
+                "single_choice",
+                "text",
+                "number"
+              ]
+            },
+            "choices": {
+              "type": "array",
+              "maxItems": 5,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "value",
+                  "label"
+                ],
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  }
+                }
+              }
+            },
+            "whyItMatters": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        }
+      ]
+    }
+  }
+}

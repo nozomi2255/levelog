@@ -1,66 +1,19 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { CheckCircle2, DatabaseBackup, Download, LoaderCircle, PlugZap } from "lucide-react";
-import { HudBadge, HudButton, HudPanel } from "../../components/hud";
+import { CheckCircle2, DatabaseBackup, Download, LoaderCircle } from "lucide-react";
+import { HudButton, HudPanel } from "../../components/hud";
 import { api } from "../../lib/api";
-import type { BackupResult, CodexConnectionStatus, ExportResult } from "../../lib/types";
+import type { BackupResult, ExportResult } from "../../lib/types";
+import { CodexSetupPanel, FocusThemesEditor, ProfileForm, profileToInput } from "../profile";
 
 type Operation = "backup" | "export" | null;
-
-function ResultLine({ label, path }: { label: string; path: string }) {
-  return <p role="status"><CheckCircle2 aria-hidden="true" size={18} /> {label}: <code>{path}</code></p>;
-}
+function ResultLine({ label, path }: { label: string; path: string }) { return <p role="status"><CheckCircle2 aria-hidden="true" size={18} /> {label}: <code>{path}</code></p>; }
 
 export function SettingsPage() {
-  const queryClient = useQueryClient();
-  const boot = useQuery({ queryKey: ["boot-state"], queryFn: api.getBootState });
-  const [codexPath, setCodexPath] = useState("");
-  const effectiveCodexPath = codexPath || boot.data?.codex?.path || "";
-  const [pathSaved, setPathSaved] = useState(false);
-  const [connection, setConnection] = useState<CodexConnectionStatus | null>(null);
-  const [connectionError, setConnectionError] = useState("");
-  const [operation, setOperation] = useState<Operation>(null);
-  const [backup, setBackup] = useState<BackupResult | null>(null);
-  const [exported, setExported] = useState<ExportResult | null>(null);
-  const [error, setError] = useState("");
-
-  async function checkConnection() {
-    setConnectionError("");
-    try { setConnection(await api.testCodexConnection(effectiveCodexPath)); }
-    catch (reason) { setConnection(null); setConnectionError(String(reason)); }
-  }
-  async function saveCodexPath() {
-    setConnectionError(""); setPathSaved(false);
-    try { await api.updateCodexPath(effectiveCodexPath); setPathSaved(true); await queryClient.invalidateQueries({ queryKey: ["boot-state"] }); }
-    catch (reason) { setConnectionError(String(reason)); }
-  }
-  async function runBackup() {
-    setOperation("backup"); setError("");
-    try { setBackup(await api.createBackup()); } catch (reason) { setError(String(reason)); } finally { setOperation(null); }
-  }
-  async function runExport() {
-    setOperation("export"); setError("");
-    try { setExported(await api.exportJson()); } catch (reason) { setError(String(reason)); } finally { setOperation(null); }
-  }
-
-  return <section className="feature-page" aria-labelledby="settings-title"><header className="page-heading"><div><p className="hud-kicker">LOCAL DATA CONTROL</p><h1 id="settings-title">設定</h1><p>Codex接続と、ローカルデータのバックアップ・持ち出しを管理します。</p></div></header><div className="settings-page">
-    <HudPanel title="Codex CLI">
-      <div className="settings-stack"><p className="empty-copy">Codex CLIの絶対パスと接続状態を確認します。記録内容は送信前に確認できます。</p>
-        <label className="settings-field">Codex CLIのパス<input value={effectiveCodexPath} onChange={(event) => { setCodexPath(event.target.value); setPathSaved(false); }} placeholder="/opt/homebrew/bin/codex" aria-describedby="codex-help" /></label>
-        <p id="codex-help" className="empty-copy">Finderから起動したアプリでは、ターミナルのPATHを利用できない場合があります。</p>
-        <div className="settings-actions"><HudButton type="button" onClick={saveCodexPath} disabled={!effectiveCodexPath.trim()}>パスを保存</HudButton><HudButton type="button" onClick={checkConnection} disabled={!effectiveCodexPath.trim()}><PlugZap aria-hidden="true" size={18} /> 接続をテスト</HudButton></div>
-        {pathSaved && <p role="status"><HudBadge tone="green">SAVED</HudBadge> Codex CLIのパスを保存しました。</p>}
-        {connection && <p role="status"><HudBadge tone={connection.available && connection.authenticated ? "green" : "gold"}>{connection.available && connection.authenticated ? "利用可能" : "確認が必要"}</HudBadge> {connection.message}{connection.version ? ` (${connection.version})` : ""}</p>}
-        {connectionError && <p role="alert">接続確認に失敗しました: {connectionError}</p>}
-      </div>
-    </HudPanel>
-    <HudPanel title="ローカルデータ">
-      <div className="settings-stack"><p className="empty-copy">バックアップはSQLiteの整合性を保って作成します。JSONエクスポートには将来の秘密情報は含めません。</p>
-        <div className="settings-actions"><HudButton type="button" tone="gold" onClick={runBackup} disabled={operation !== null}>{operation === "backup" ? <LoaderCircle className="spin" aria-hidden="true" size={18} /> : <DatabaseBackup aria-hidden="true" size={18} />} バックアップを作成</HudButton><HudButton type="button" tone="cyan" onClick={runExport} disabled={operation !== null}>{operation === "export" ? <LoaderCircle className="spin" aria-hidden="true" size={18} /> : <Download aria-hidden="true" size={18} />} JSONを書き出す</HudButton></div>
-        {backup && <ResultLine label="バックアップを作成しました" path={backup.path} />}
-        {exported && <ResultLine label={`JSONを書き出しました（schema v${exported.schemaVersion}）`} path={exported.path} />}
-        {error && <p role="alert">データ操作に失敗しました: {error}</p>}
-      </div>
-    </HudPanel>
-  </div></section>;
+  const client = useQueryClient(); const profile = useQuery({ queryKey: ["user-profile"], queryFn: api.getUserProfile }); const themes = useQuery({ queryKey: ["focus-themes"], queryFn: api.listFocusThemes }); const [operation, setOperation] = useState<Operation>(null); const [backup, setBackup] = useState<BackupResult | null>(null); const [exported, setExported] = useState<ExportResult | null>(null); const [dataError, setDataError] = useState("");
+  const saveProfile = useMutation({ mutationFn: api.updateUserProfile, onSuccess: (updated) => { client.setQueryData(["user-profile"], updated); void client.invalidateQueries({ queryKey: ["dashboard"] }); void client.invalidateQueries({ queryKey: ["skills"] }); } });
+  const saveThemes = useMutation({ mutationFn: api.saveFocusThemes, onSuccess: () => { void client.invalidateQueries({ queryKey: ["focus-themes"] }); void client.invalidateQueries({ queryKey: ["user-profile"] }); void client.invalidateQueries({ queryKey: ["skills"] }); } });
+  const reloadProfile = () => { saveProfile.reset(); void profile.refetch(); };
+  const runBackup = async () => { setOperation("backup"); setDataError(""); try { setBackup(await api.createBackup()); } catch (reason) { setDataError(String(reason)); } finally { setOperation(null); } }; const runExport = async () => { setOperation("export"); setDataError(""); try { setExported(await api.exportJson()); } catch (reason) { setDataError(String(reason)); } finally { setOperation(null); } };
+  return <section className="feature-page" aria-labelledby="settings-title"><header className="page-heading"><div><p className="hud-kicker">GROWTH SYSTEM CONTROL</p><h1 id="settings-title">設定</h1><p>成長プロフィール、AI接続、ローカルデータを管理します。</p></div></header><div className="settings-sections"><section aria-labelledby="profile-settings-title"><h2 id="profile-settings-title">成長プロフィール</h2>{profile.isPending && <p role="status">プロフィールを読み込んでいます…</p>}{profile.isError && <p role="alert">プロフィールを読み込めませんでした: {String(profile.error)}</p>}{profile.data && <><ProfileForm key={profile.data.revision} mode="edit" initialValue={profileToInput(profile.data)} submitting={saveProfile.isPending} error={saveProfile.error} onReload={reloadProfile} onSubmit={(value) => saveProfile.mutate(value)} />{saveProfile.isSuccess && <p className="result-message" role="status">成長プロフィールを保存しました。</p>}{themes.isPending && <p role="status">個人テーマを読み込んでいます…</p>}{themes.isError && <p role="alert">個人テーマを読み込めませんでした: {String(themes.error)}</p>}{themes.data && <FocusThemesEditor key={`themes-${themes.data.map((theme) => theme.updatedAt).join("-")}`} initialThemes={themes.data} saving={saveThemes.isPending} error={saveThemes.error} onSave={(nextThemes) => saveThemes.mutate(nextThemes)} />}</>}</section><section aria-labelledby="ai-settings-title"><h2 id="ai-settings-title">AI接続</h2><CodexSetupPanel /></section><section aria-labelledby="data-settings-title"><h2 id="data-settings-title">ローカルデータ</h2><HudPanel title="バックアップと書き出し"><p className="empty-copy">JSONには活動の原文、実際に送信したペイロード、AIの生出力、プロフィール、質問への回答、ユーザーの判断を含みます。共有前に内容を確認してください。Codex接続パスや認証情報などの秘密情報は含めません。このJSONをアプリへ復元する機能は、まだありません。</p><div className="settings-actions"><HudButton type="button" tone="gold" onClick={() => void runBackup()} disabled={operation !== null}>{operation === "backup" ? <LoaderCircle className="spin" aria-hidden="true" /> : <DatabaseBackup aria-hidden="true" />} バックアップを作成</HudButton><HudButton type="button" onClick={() => void runExport()} disabled={operation !== null}>{operation === "export" ? <LoaderCircle className="spin" aria-hidden="true" /> : <Download aria-hidden="true" />} JSONを書き出す</HudButton></div>{backup && <ResultLine label="バックアップを作成しました" path={backup.path} />}{exported && <ResultLine label={`JSONを書き出しました（schema v${exported.schemaVersion}）`} path={exported.path} />}{dataError && <p role="alert">データ操作に失敗しました: {dataError}</p>}</HudPanel></section></div></section>;
 }

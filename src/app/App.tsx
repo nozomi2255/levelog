@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/app-shell";
 import { HudBadge, HudPanel } from "../components/hud";
-import { ActivitiesPage, AnalysisPage, NewActivityPage } from "../features/activities";
+import { ActivitiesPage, ActivityInboxPage, AnalysisPage, NewActivityPage } from "../features/activities";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { OnboardingPage } from "../features/onboarding";
 import { QuestsPage } from "../features/quests/QuestsPage";
@@ -44,11 +44,12 @@ function AppRoutes() {
       <Route index element={<DashboardPage />} />
       <Route path="quests" element={<QuestsPage />} />
       <Route path="activities" element={<ActivitiesPage />} />
+      <Route path="activities/inbox" element={<ActivityInboxPage />} />
       <Route path="activities/new" element={<NewActivityPage />} />
       <Route path="activities/:activityId/analysis" element={<AnalysisPage />} />
       <Route path="skills" element={<SkillsPage />} />
       <Route path="reports" element={<NextPhasePage title="レポート" message="週次レビューは次フェーズで提供します。活動・証拠・振り返りのデータは、それまでローカルに蓄積されます。" />} />
-      <Route path="memory" element={<NextPhasePage title="メモリ" message="検索できる実績メモリは次フェーズで提供します。MVPではJSONエクスポートで全記録を取り出せます。" />} />
+      <Route path="memory" element={<NextPhasePage title="メモリ" message="検索できる実績メモリは次フェーズで提供します。現在の全記録は、設定からJSONとして取り出せます。" />} />
       <Route path="settings" element={<SettingsPage />} />
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />

@@ -35,11 +35,85 @@ export interface CodexConnectionStatus {
   message: string;
 }
 
+export interface CodexPathCandidateDto {
+  discoveredPath: string;
+  canonicalPath: string;
+  source: string;
+  executable: boolean;
+  recommended: boolean;
+  connection: CodexConnectionStatus | null;
+}
+
+export type QuestStyle = "balanced" | "work_integrated" | "practice" | "reflection";
+
+export interface FocusThemeDto {
+  id: string;
+  title: string;
+  desiredOutcome: string;
+  whyNow: string;
+  horizon: "now" | "quarter" | "year" | "ongoing";
+  status: "active" | "paused" | "completed";
+  linkedSkillIds: string[];
+  sortOrder: number;
+  updatedAt: string;
+}
+
+export interface FocusThemeInput extends Omit<FocusThemeDto, "id" | "updatedAt"> {
+  id: string | null;
+}
+
+export interface UserProfileDto {
+  schemaVersion: number;
+  revision: number;
+  role: string;
+  background: string;
+  currentResponsibilities: string;
+  domainsAndTechnologies: string[];
+  growthGoal: string;
+  motivation: string;
+  currentChallenges: string;
+  recentSuccess: string;
+  focusSkillIds: string[];
+  weeklyMinutes: number;
+  preferredQuestMinutes: number;
+  preferredQuestStyle: QuestStyle;
+  constraints: string;
+  excludedQuestPatterns: string;
+  focusThemes: FocusThemeDto[];
+  updatedAt: string;
+}
+
+export interface UpdateUserProfileInput {
+  expectedRevision: number | null;
+  role: string;
+  background: string;
+  currentResponsibilities: string;
+  domainsAndTechnologies: string[];
+  growthGoal: string;
+  motivation: string;
+  currentChallenges: string;
+  recentSuccess: string;
+  focusSkillIds: string[];
+  weeklyMinutes: number;
+  preferredQuestMinutes: number;
+  preferredQuestStyle: QuestStyle;
+  constraints: string;
+  excludedQuestPatterns: string;
+}
+
 export interface CreateActivityInput {
   occurredOn: string;
   actionText: string;
   challengeText: string;
   outcomeText: string;
+}
+
+export type CaptureMode = "quick" | "guided" | "deep";
+
+export interface QuickCaptureInput {
+  occurredOn: string;
+  rawText: string;
+  captureMode: CaptureMode;
 }
 
 export interface ActivityDto extends CreateActivityInput {
@@ -79,6 +153,42 @@ export interface SkillCandidateDto {
   reason: string;
   evidence: string;
   decision: CandidateDecision;
+  specializedSkillName: string | null;
+}
+
+export interface InterviewChoiceDto {
+  value: string;
+  label: string;
+}
+
+export interface InterviewQuestionDto {
+  sessionId: string;
+  questionId: string;
+  target: string;
+  text: string;
+  answerType: "single_choice" | "text" | "number";
+  choices: InterviewChoiceDto[];
+  whyItMatters: string;
+  status: "pending" | "answered" | "unknown" | "skipped" | "deferred" | "closed";
+}
+
+export interface InterviewAnswerInput {
+  sessionId: string;
+  questionId: string;
+  answerState: "answered" | "unknown" | "skipped" | "deferred";
+  answer: string | null;
+}
+
+export interface ActivityWorkflowDto {
+  activityId: string;
+  state: "captured" | "analysis_running" | "needs_input" | "assessable" | "review_pending" | "confirmed" | "excluded";
+  version: number;
+  currentQuestion: InterviewQuestionDto | null;
+  updatedAt: string;
+}
+
+export interface ActivityInboxItemDto extends ActivityDto {
+  workflow: ActivityWorkflowDto;
 }
 
 export interface ActivityAnalysisDto {
@@ -87,8 +197,11 @@ export interface ActivityAnalysisDto {
   status: JobStatus;
   summary: string | null;
   outcomes: string[];
+  confirmedFacts: string[];
+  unconfirmedFacts: string[];
   skillCandidates: SkillCandidateDto[];
   missingInformationQuestion: string | null;
+  nextQuestion: InterviewQuestionDto | null;
   errorMessage: string | null;
 }
 
@@ -97,6 +210,8 @@ export interface CandidateDecisionInput {
   decision: Exclude<CandidateDecision, "pending">;
   editedReason: string | null;
   editedEvidence: string | null;
+  editedSkillId: string | null;
+  editedSpecializedSkillName: string | null;
 }
 
 export interface ConfirmAnalysisInput {
@@ -127,6 +242,13 @@ export interface QuestDto {
 export interface GenerateQuestInput {
   activityId: string;
   analysisId: string;
+  submittedPayload?: string | null;
+}
+
+export interface SubmissionPreview {
+  entityId: string;
+  submittedPayload: string;
+  cloudInferenceNotice: string;
 }
 
 export type QuestTransitionAction =
@@ -167,6 +289,11 @@ export interface SkillDto {
   category: string;
   evidenceCount: number;
   state: "observing";
+  specializedSkills: Array<{
+    name: string;
+    evidenceCount: number;
+    lastObservedAt: string | null;
+  }>;
 }
 
 export interface DashboardSnapshot {

@@ -33,6 +33,11 @@ describe("QuestsPage", () => {
     expect(screen.getAllByRole("button", { name: "延期する" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "縮小する" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "破棄する" }).length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole("button", { name: "破棄する" })[0]!);
+    expect(screen.getByText("このクエストは履歴に残りますが、破棄後は再開できません。")).toBeInTheDocument();
+    expect(api.transitionQuest).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "本当に破棄する" }));
+    expect(api.transitionQuest).toHaveBeenCalledWith(expect.objectContaining({ action: "cancel" }), expect.anything());
     await user.click(screen.getByRole("button", { name: "振り返りを記録する" }));
     expect(screen.getByRole("option", { name: "未完了" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "休息した" })).toBeInTheDocument();
