@@ -1,0 +1,28 @@
+[package]
+name = "levelog"
+version = "0.1.0"
+description = "A local growth OS for macOS"
+authors = ["Levelog"]
+edition = "2024"
+
+[lib]
+name = "levelog_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "chrono", "uuid"] }
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["process", "time", "fs", "io-util", "sync", "macros", "rt-multi-thread"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
