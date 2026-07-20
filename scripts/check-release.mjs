@@ -58,6 +58,8 @@ for (const required of [
   "scripts/generate-third-party-notices.mjs",
   "scripts/generate-release-config.mjs",
   "scripts/generate-release-config.node-tests.mjs",
+  "scripts/verify-release-assets.mjs",
+  "scripts/verify-release-assets.node-tests.mjs",
   "src-tauri/resources/README.md",
   ".github/workflows/ci.yml",
   ".github/workflows/release.yml",
@@ -72,6 +74,14 @@ try {
   });
 } catch {
   failures.push("Release config generatorのtestが失敗しました");
+}
+try {
+  execFileSync(process.execPath, ["--test", "scripts/verify-release-assets.node-tests.mjs"], {
+    cwd: root,
+    stdio: "pipe",
+  });
+} catch {
+  failures.push("Release asset verifierのtestが失敗しました");
 }
 
 if (process.env.GITHUB_REF_TYPE === "tag") {
