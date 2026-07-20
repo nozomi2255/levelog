@@ -536,6 +536,7 @@ export interface ReleaseInfoDto {
   currentVersion: string;
   updaterConfigured: boolean;
   releaseChannel: string;
+  macosDistribution: "ad-hoc" | "developer-id" | "development";
 }
 
 export interface AppUpdateDto {

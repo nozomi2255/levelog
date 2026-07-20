@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
+import { buildReleaseConfig } from "./generate-release-config.mjs";
+
 const root = new URL("../", import.meta.url);
 const readJson = (path) => JSON.parse(readFileSync(new URL(path, root), "utf8"));
 const packageJson = readJson("package.json");
@@ -18,6 +20,20 @@ if (!tauriConfig.bundle?.icon?.includes("icons/icon.icns")) {
   failures.push("macOS app iconがbundle設定にありません");
 }
 if (releaseConfig.bundle?.createUpdaterArtifacts !== true) failures.push("release configで更新artifactが有効ではありません");
+if (releaseConfig.bundle?.macOS?.signingIdentity !== "-") {
+  failures.push("release configでmacOSのad-hoc signing identity（-）が明示されていません");
+}
+try {
+  buildReleaseConfig({
+    baseConfig: releaseConfig,
+    env: {
+      LEVELOG_UPDATER_PUBLIC_KEY: "release-check-public-placeholder",
+      LEVELOG_UPDATER_ENDPOINT: "https://github.com/example/levelog/releases/latest/download/latest.json",
+    },
+  });
+} catch {
+  failures.push("Release config generatorが有効なupdater設定を生成できません");
+}
 if (packageJson.scripts?.["notices:generate"] !== "node scripts/generate-third-party-notices.mjs") {
   failures.push("依存ライセンス通知の生成scriptが設定されていません");
 }
@@ -36,11 +52,22 @@ for (const required of [
   "SECURITY.md",
   "CONTRIBUTING.md",
   "scripts/generate-third-party-notices.mjs",
+  "scripts/generate-release-config.mjs",
+  "scripts/generate-release-config.test.mjs",
   "src-tauri/resources/README.md",
   ".github/workflows/ci.yml",
   ".github/workflows/release.yml",
 ]) {
   try { readFileSync(new URL(required, root)); } catch { failures.push(`${required}がありません`); }
+}
+
+try {
+  execFileSync(process.execPath, ["--test", "scripts/generate-release-config.test.mjs"], {
+    cwd: root,
+    stdio: "pipe",
+  });
+} catch {
+  failures.push("Release config generatorのtestが失敗しました");
 }
 
 if (process.env.GITHUB_REF_TYPE === "tag") {

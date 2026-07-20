@@ -10,6 +10,7 @@ const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 const UPDATE_ENDPOINT: Option<&str> = option_env!("LEVELOG_UPDATER_ENDPOINT");
 const UPDATE_PUBLIC_KEY: Option<&str> = option_env!("LEVELOG_UPDATER_PUBLIC_KEY");
+const MACOS_DISTRIBUTION_MODE: Option<&str> = option_env!("LEVELOG_MACOS_DISTRIBUTION_MODE");
 
 pub struct PendingAppUpdate(pub Mutex<Option<Update>>);
 
@@ -25,6 +26,7 @@ pub struct ReleaseInfoDto {
     pub current_version: String,
     pub updater_configured: bool,
     pub release_channel: &'static str,
+    pub macos_distribution: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -81,12 +83,25 @@ fn is_release_configured() -> bool {
     release_configuration().is_ok()
 }
 
+fn macos_distribution_from(value: Option<&str>) -> &'static str {
+    match value.map(str::trim) {
+        Some("ad-hoc") => "ad-hoc",
+        Some("developer-id") => "developer-id",
+        _ => "development",
+    }
+}
+
+fn macos_distribution() -> &'static str {
+    macos_distribution_from(MACOS_DISTRIBUTION_MODE)
+}
+
 #[tauri::command]
 pub fn get_release_info(app: AppHandle) -> ReleaseInfoDto {
     ReleaseInfoDto {
         current_version: app.package_info().version.to_string(),
         updater_configured: is_release_configured(),
         release_channel: "GitHub Releases / stable",
+        macos_distribution: macos_distribution(),
     }
 }
 
@@ -153,4 +168,30 @@ pub async fn install_app_update(
         .await?;
     let _ = on_event.send(AppUpdateEvent::Installed);
     app.restart();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::macos_distribution_from;
+
+    #[test]
+    fn accepts_the_explicit_ad_hoc_distribution_mode() {
+        assert_eq!(macos_distribution_from(Some("ad-hoc")), "ad-hoc");
+        assert_eq!(macos_distribution_from(Some(" ad-hoc ")), "ad-hoc");
+    }
+
+    #[test]
+    fn accepts_the_explicit_developer_id_distribution_mode() {
+        assert_eq!(
+            macos_distribution_from(Some("developer-id")),
+            "developer-id"
+        );
+    }
+
+    #[test]
+    fn treats_unset_or_unknown_modes_as_development() {
+        assert_eq!(macos_distribution_from(None), "development");
+        assert_eq!(macos_distribution_from(Some("notarized")), "development");
+        assert_eq!(macos_distribution_from(Some("")), "development");
+    }
 }

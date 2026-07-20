@@ -63,6 +63,7 @@ export function AppUpdatePanel() {
   const configured = release.data?.updaterConfigured === true;
   const progressMax = total && total > 0 ? total : Math.max(downloaded, 1);
   const publishedAt = formatDate(available?.publishedAt ?? null);
+  const isAdHocDistribution = release.data?.macosDistribution === "ad-hoc";
 
   return (
     <HudPanel
@@ -71,7 +72,7 @@ export function AppUpdatePanel() {
     >
       <div className="settings-stack update-panel">
         <p className="empty-copy">
-          GitHub Releasesで公開された更新を確認し、署名を検証してからインストールします。更新元のURLや実行ファイルを手入力する必要はありません。
+          GitHub Releasesで公開された更新を確認し、Tauri更新署名を検証してからインストールします。更新元のURLや実行ファイルを手入力する必要はありません。
         </p>
         {release.isPending && <p role="status">バージョン情報を確認しています…</p>}
         {release.isError && <p role="alert">バージョン情報を取得できませんでした: {String(release.error)}</p>}
@@ -79,8 +80,13 @@ export function AppUpdatePanel() {
           <dl className="release-facts">
             <div><dt>現在</dt><dd>v{release.data.currentVersion}</dd></div>
             <div><dt>チャネル</dt><dd>{release.data.releaseChannel}</dd></div>
-            <div><dt>検証</dt><dd><ShieldCheck aria-hidden="true" size={17} /> 更新署名を必須化</dd></div>
+            <div><dt>検証</dt><dd><ShieldCheck aria-hidden="true" size={17} /> Tauri更新署名を必須化</dd></div>
           </dl>
+        )}
+        {isAdHocDistribution && (
+          <p className="update-notice" role="status">
+            この配布版はDeveloper ID署名・Apple公証を使用していません。初回のインストールは公式GitHub Releasesから行い、macOSの警告に従って許可してください。アプリ内更新はTauri更新署名で検証します。
+          </p>
         )}
         {release.data && !configured && (
           <p className="update-notice" role="status">

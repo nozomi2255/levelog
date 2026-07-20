@@ -538,18 +538,25 @@ Agent ownership is exclusive. Agents report changes and tests to the orchestrato
 ## Phase 5: open-source distribution and signed updates
 
 Phase 5 makes Levelog safe to publish as an MIT-licensed GitHub repository and prepares a two-architecture
-macOS release channel. New users install a Developer ID signed and Apple-notarized DMG. Existing users open
-Settings, check the fixed GitHub Releases channel, inspect the version and plain-text release notes, then
-explicitly install a Tauri-signed update and restart.
+macOS release channel. The distribution decision was revised on 2026-07-20: until Apple Developer Program
+membership is available, new users install an explicitly ad-hoc-signed, non-notarized DMG and follow the
+documented macOS Privacy & Security approval flow. Existing users open Settings, check the fixed GitHub
+Releases channel, inspect the version and plain-text release notes, then explicitly install a Tauri-signed
+update and restart.
 
-Distribution has two independent signatures:
+Distribution has two independent trust boundaries:
 
-- Apple Developer ID plus notarization protects browser-downloaded DMG/app execution and publisher identity.
-- Tauri updater minisign protects the `.app.tar.gz` consumed by an existing Levelog installation.
+- Apple Developer ID plus notarization would protect browser-downloaded DMG/app execution and publisher
+  identity, but is intentionally deferred. Ad-hoc signing does not provide publisher identity and does not
+  remove Gatekeeper approval.
+- Tauri updater minisign protects the `.app.tar.gz` consumed by an existing Levelog installation and remains
+  mandatory even while Apple signing is deferred.
 
-Neither is allowed to silently fall back. The GitHub Release job stops when any update key, Developer ID
-certificate, or notarization credential is missing. Local development builds remain usable without secrets
-and expose the updater as intentionally unconfigured.
+The GitHub Release job stops when any Tauri update key input is missing; it never emits an unsigned updater
+artifact. Apple credentials are not required for the current distribution mode, and the build explicitly uses
+the ad-hoc identity rather than silently falling back. Local development builds remain usable without secrets
+and expose the updater as intentionally unconfigured. A future Developer ID migration is a deliberate release
+mode change with its own verification gate.
 
 The updater endpoint and public key are injected into the Rust crate at release compile time as
 `LEVELOG_UPDATER_ENDPOINT` and `LEVELOG_UPDATER_PUBLIC_KEY`. The React webview cannot provide or override an
@@ -570,7 +577,12 @@ and restart after signature verification and replacement.
 | P5-VERIFY | Orchestrator | completed | P5-CI/P5-ICON/P5-LEGAL | local frontend/Rust/Playwright/arm64 DMG verification |
 | P5-HISTORY | User + Orchestrator | completed | P5-AUDIT | verified local backup, no-reply history rewrite, empty GitHub origin |
 | P5-SOURCE-PUBLISH | Orchestrator | completed | P5-HISTORY/P5-VERIFY | audited no-reply source commit pushed to origin/main without a Release tag |
-| P5-PUBLISH | User + Orchestrator | blocked | P5-SOURCE-PUBLISH | long-lived updater key and Apple credentials |
+| P5-UNSIGNED-DESIGN | Orchestrator | completed | P5-SOURCE-PUBLISH | explicit ad-hoc DMG plus mandatory Tauri updater trust boundary |
+| P5-UNSIGNED-WORKFLOW | Agent unsigned_release_implementation | in_progress | P5-UNSIGNED-DESIGN | Release workflow, explicit ad-hoc signing, artifact completeness |
+| P5-UNSIGNED-UX | Agent updater_unsigned_implementation | in_progress | P5-UNSIGNED-DESIGN | accurate updater verification and distribution-status UI/tests |
+| P5-UNSIGNED-DOCS | Agent unsigned_distribution_docs | in_progress | P5-UNSIGNED-DESIGN | install warning, safe first-open flow, security/runbook/audit updates |
+| P5-UNSIGNED-REVIEW | Orchestrator + independent reviewer | pending | P5-UNSIGNED-WORKFLOW/P5-UNSIGNED-UX/P5-UNSIGNED-DOCS | integrated security and requirement review |
+| P5-PUBLISH | User + Orchestrator | blocked | P5-UNSIGNED-REVIEW | one-time long-lived Tauri updater key and protected GitHub secrets |
 
 Phase 5 acceptance requires:
 
@@ -580,11 +592,13 @@ Phase 5 acceptance requires:
 - Every GitHub Action is pinned to a reviewed full commit SHA and Dependabot monitors updates.
 - Release builds both `aarch64-apple-darwin` and `x86_64-apple-darwin`, DMGs, updater archives/signatures,
   and a multi-platform `latest.json`.
-- Missing Apple or Tauri secrets stops Release rather than producing an unsigned/ad-hoc public artifact.
+- Missing Tauri updater key inputs stops Release rather than producing an unsigned updater artifact.
+- Release configuration explicitly selects ad-hoc macOS signing and every public surface discloses that the
+  DMG is not Developer ID signed or Apple-notarized.
 - The app never accepts an updater URL, public key, or artifact path from the webview.
 - The Settings journey covers unconfigured development builds, no-update, update-available, progress, error,
   and user-confirmed restart states with accessible status output and plain-text release notes.
-- A previous signed build is manually updated to the new build and retains its local database before a public
+- A previous release build is manually updated through a valid Tauri signature and retains its local database before a public
   Release is marked complete.
 
 Operational details and unresolved publication blockers live in `docs/release-runbook.md` and
@@ -788,22 +802,22 @@ Levelog.app bundle                            arm64, com.levelog.desktop, v0.1.0
 Levelog.app resources                         icon.icns 1024px + exact LICENSE/notices copies
 hdiutil verify                                passed: DMG checksum valid
 pnpm audit:public                             source/assets passed; blocked only by historic author email
-signed/notarized dual-architecture release    pending P5-PUBLISH credentials and GitHub remote
-live update from previous signed build        pending first two signed Releases
+ad-hoc dual-architecture release              pending P5-PUBLISH updater credentials
+live update from previous release build       pending first two Tauri-signed Releases
 ```
 
 Playwright baselines are stored under `tests/e2e/shell.spec.ts-snapshots/` for 1586x992, 1280x800, and 1024x720.
 
 Known issues and deliberate limits:
 
-- The local `.app` is linker ad-hoc signed and not notarized. The public workflow requires Developer ID and
-  Apple notarization credentials and refuses to publish an ad-hoc build; the current keychain has no valid
-  code-signing identity.
+- The local `.app` is linker ad-hoc signed and not notarized. Public Releases intentionally use explicit
+  ad-hoc signing until Apple Developer Program membership is available. Users must approve the first launch
+  in macOS Privacy & Security; this is a disclosed limitation, not publisher verification.
 - The public `main` history now uses one GitHub no-reply identity and `origin` targets the confirmed-empty
   `nozomi2255/levelog` repository. The replaced unpublished history exists only in a verified local `.git`
   bundle and must never be added to the repository.
-- A long-lived Tauri updater signing key has not been generated. This and the Apple credentials are explicit
-  P5-PUBLISH blockers, not source-code fallback paths.
+- A long-lived Tauri updater signing key has not been generated. It is the remaining credential blocker for
+  P5-PUBLISH; the updater does not accept unsigned artifacts or source-code fallback paths.
 - The audited source is published at `https://github.com/nozomi2255/levelog`; local and remote `main` matched
   commit `4354bd5` immediately after the initial push. No Release tag or unsigned public artifact was created.
 - The first hosted CI exposed a pnpm configuration mismatch because the lockfile recorded
@@ -818,8 +832,8 @@ Known issues and deliberate limits:
   approved images across retries. The comparison allows at most 5,000 changed pixels per full-page viewport,
   while semantic/layout/overflow assertions remain exact; an official full-SHA-pinned artifact step retains
   actual, diff, and trace output for seven days whenever that bounded gate fails.
-- Intel packaging and a real signed previous-version-to-current-version update cannot be reproduced locally
-  on the current Apple Silicon host without the release credentials. The Release workflow builds both and
+- Intel packaging and a real previous-version-to-current-version update cannot be reproduced locally on the
+  current Apple Silicon host without the updater release credentials. The Release workflow builds both and
   keeps them Draft until its completeness gate passes; manual post-release validation remains required.
 - A live Codex inference was not sent during the default verification. It requires an authenticated compatible CLI and the explicit opt-in smoke command above.
 - Import currently supports paste and individually selected `.md`, `.markdown`, and `.txt` UTF-8 files. Lossless
@@ -835,9 +849,8 @@ Known issues and deliberate limits:
 
 Next task:
 
-> Obtain user-controlled password and backup locations for the irreplaceable Tauri updater private key,
-> generate it exactly once, and configure the
-> protected GitHub `release` Environment together with the Apple Developer ID/notarization credentials.
+> Complete P5-UNSIGNED-WORKFLOW, then integrate the updater UI and public documentation changes before the
+> one-time Tauri updater key ceremony.
 
 ## Resume procedure
 

@@ -56,48 +56,30 @@ jobs:
           pnpm test
           cargo test --locked --manifest-path src-tauri/Cargo.toml
 
-      - name: Require signing and notarization secrets
+      - name: Require Tauri updater signing secrets
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           LEVELOG_UPDATER_PUBLIC_KEY: ${{ secrets.LEVELOG_UPDATER_PUBLIC_KEY }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD LEVELOG_UPDATER_PUBLIC_KEY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD LEVELOG_UPDATER_PUBLIC_KEY; do
             if [[ -z "${!name}" ]]; then
               echo "Required release secret is missing: $name" >&2
               exit 1
             fi
           done
 
-      - name: Import Developer ID certificate
+      - name: Generate Tauri release config
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          LEVELOG_UPDATER_PUBLIC_KEY: ${{ secrets.LEVELOG_UPDATER_PUBLIC_KEY }}
+          LEVELOG_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
         run: |
-          set -euo pipefail
-          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -u build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-          CERT_ID=$(security find-identity -v -p codesigning build.keychain | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -n 1)
-          if [[ -z "$CERT_ID" ]]; then
-            echo "Developer ID Application certificate was not found" >&2
-            exit 1
-          fi
-          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+          node scripts/generate-release-config.mjs \
+            --base src-tauri/tauri.release.conf.json \
+            --output src-tauri/target/release-config/tauri.generated.conf.json
 
-      - name: Build, notarize, and publish DMG plus updater artifacts
+      - name: Build and publish ad-hoc DMG plus signed updater artifacts
         uses: tauri-apps/tauri-action@2d793bf2c8c505b9b76211601b09aab48922225d # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -105,25 +87,47 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           LEVELOG_UPDATER_PUBLIC_KEY: ${{ secrets.LEVELOG_UPDATER_PUBLIC_KEY }}
           LEVELOG_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
-          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          LEVELOG_MACOS_DISTRIBUTION_MODE: ad-hoc
         with:
           tagName: v__VERSION__
           releaseName: Levelog v__VERSION__
+          releaseBody: |
+            ## macOS security notice
+
+            This release is **ad-hoc signed and not Apple-notarized**. macOS may require you to approve Levelog in System Settings → Privacy & Security before its first launch.
+
+            Download only from this GitHub Release. `SHA256SUMS.txt` is provided for download-integrity comparison; it does **not** authenticate the publisher. In-app updates are separately verified with Levelog's Tauri updater signature.
           generateReleaseNotes: true
           releaseDraft: true
           prerelease: false
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
-          args: --config src-tauri/tauri.release.conf.json --target ${{ matrix.target }}
+          args: --config src-tauri/target/release-config/tauri.generated.conf.json --target ${{ matrix.target }}
 
-      - name: Remove signing material from runner
-        if: always()
+      - name: Verify updater artifact signature against configured public key
+        env:
+          LEVELOG_UPDATER_PUBLIC_KEY: ${{ secrets.LEVELOG_UPDATER_PUBLIC_KEY }}
         run: |
-          security delete-keychain build.keychain 2>/dev/null || true
-          rm -f certificate.p12
+          set -euo pipefail
+          shopt -s nullglob
+          bundle_dir="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          archives=("$bundle_dir"/*.app.tar.gz)
+          signatures=("$bundle_dir"/*.app.tar.gz.sig)
+          if [[ "${#archives[@]}" -ne 1 ]]; then
+            echo "Expected exactly one updater archive for ${{ matrix.arch }}, found ${#archives[@]}" >&2
+            exit 1
+          fi
+          if [[ "${#signatures[@]}" -ne 1 || "${signatures[0]}" != "${archives[0]}.sig" ]]; then
+            echo "Expected exactly one matching updater signature for ${{ matrix.arch }}" >&2
+            exit 1
+          fi
+          LEVELOG_VERIFY_UPDATE_ARCHIVE="${archives[0]}" \
+          LEVELOG_VERIFY_UPDATE_SIGNATURE="${signatures[0]}" \
+          LEVELOG_VERIFY_UPDATE_PUBLIC_KEY="$LEVELOG_UPDATER_PUBLIC_KEY" \
+            cargo test --locked --manifest-path src-tauri/Cargo.toml \
+              --test verify_update_artifact \
+              release_update_archive_matches_configured_public_key \
+              -- --ignored --exact
 
   publish-release:
     name: Verify and publish complete release
@@ -149,12 +153,74 @@ jobs:
 
           release_tmp=$(mktemp -d)
           trap 'rm -rf "$release_tmp"' EXIT
-          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir "$release_tmp"
-          jq -e '
-            .platforms["darwin-aarch64"].url and
-            (.platforms["darwin-aarch64"].signature | length > 0) and
-            .platforms["darwin-x86_64"].url and
-            (.platforms["darwin-x86_64"].signature | length > 0)
-          ' "$release_tmp/latest.json" >/dev/null
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.dmg' \
+            --pattern '*.app.tar.gz' \
+            --pattern '*.app.tar.gz.sig' \
+            --pattern latest.json \
+            --dir "$release_tmp"
+
+          shopt -s nullglob
+          updater_archives=("$release_tmp"/*.app.tar.gz)
+          updater_signatures=("$release_tmp"/*.app.tar.gz.sig)
+          if [[ "${#updater_archives[@]}" -ne 2 || "${#updater_signatures[@]}" -ne 2 ]]; then
+            echo "Expected exactly two updater archives and signatures" >&2
+            exit 1
+          fi
+
+          expected_url_prefix="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/"
+          verify_platform() {
+            local platform="$1"
+            local url signature asset_name signature_file signature_contents
+            url=$(jq -er --arg platform "$platform" '.platforms[$platform].url' "$release_tmp/latest.json")
+            signature=$(jq -er --arg platform "$platform" '.platforms[$platform].signature' "$release_tmp/latest.json")
+            if [[ "$url" != "$expected_url_prefix"*.app.tar.gz ]]; then
+              echo "Updater URL for $platform is outside the current repository/tag or is not an app archive" >&2
+              exit 1
+            fi
+            asset_name="${url#"$expected_url_prefix"}"
+            if [[ "$asset_name" == */* || ! -f "$release_tmp/$asset_name" ]]; then
+              echo "Updater URL for $platform does not resolve to a downloaded release asset" >&2
+              exit 1
+            fi
+            signature_file="$release_tmp/$asset_name.sig"
+            if [[ ! -f "$signature_file" ]]; then
+              echo "Updater signature asset for $platform is missing" >&2
+              exit 1
+            fi
+            signature_contents=$(tr -d '\r\n' < "$signature_file")
+            if [[ -z "$signature" || "$signature" != "$signature_contents" ]]; then
+              echo "latest.json signature for $platform does not match its signature asset" >&2
+              exit 1
+            fi
+            printf '%s\n' "$asset_name"
+          }
+
+          aarch64_asset=$(verify_platform darwin-aarch64)
+          x86_64_asset=$(verify_platform darwin-x86_64)
+          if [[ "$aarch64_asset" == "$x86_64_asset" ]]; then
+            echo "Updater platforms must reference distinct archive assets" >&2
+            exit 1
+          fi
+
+          dmg_files=("$release_tmp"/*.dmg)
+          if [[ "${#dmg_files[@]}" -ne 2 ]]; then
+            echo "Expected exactly two downloaded DMGs, found ${#dmg_files[@]}" >&2
+            exit 1
+          fi
+          (
+            cd "$release_tmp"
+            shasum -a 256 -- *.dmg > SHA256SUMS.txt
+          )
+          checksum_lines=$(wc -l < "$release_tmp/SHA256SUMS.txt" | tr -d '[:space:]')
+          if [[ "$checksum_lines" -ne 2 ]]; then
+            echo "Expected exactly two SHA256SUMS.txt lines, found $checksum_lines" >&2
+            exit 1
+          fi
+          if ! awk 'NF != 2 || $1 !~ /^[0-9a-f]{64}$/ { exit 1 }' "$release_tmp/SHA256SUMS.txt"; then
+            echo "SHA256SUMS.txt has an invalid format" >&2
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" "$release_tmp/SHA256SUMS.txt" --clobber
 
           gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest

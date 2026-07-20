@@ -30,6 +30,7 @@ describe("AppUpdatePanel", () => {
       currentVersion: "0.1.0",
       updaterConfigured: false,
       releaseChannel: "GitHub Releases / stable",
+      macosDistribution: "development",
     });
     render(<AppUpdatePanel />, { wrapper: Wrapper });
 
@@ -38,12 +39,13 @@ describe("AppUpdatePanel", () => {
     expect(screen.getByRole("button", { name: "更新を確認" })).toBeDisabled();
   });
 
-  it("shows signed release details and starts a user-confirmed install", async () => {
+  it("discloses ad-hoc distribution while verifying updates with Tauri signatures", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getReleaseInfo).mockResolvedValue({
       currentVersion: "0.1.0",
       updaterConfigured: true,
       releaseChannel: "GitHub Releases / stable",
+      macosDistribution: "ad-hoc",
     });
     vi.mocked(api.checkForAppUpdate).mockResolvedValue({
       currentVersion: "0.1.0",
@@ -57,6 +59,8 @@ describe("AppUpdatePanel", () => {
     });
     render(<AppUpdatePanel />, { wrapper: Wrapper });
 
+    expect(await screen.findByText(/Developer ID署名・Apple公証を使用していません/)).toBeInTheDocument();
+    expect(screen.getByText("Tauri更新署名を必須化")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "更新を確認" }));
     expect(await screen.findByRole("heading", { name: "v0.2.0 を利用できます" })).toBeInTheDocument();
     expect(screen.getByLabelText("リリースノート")).toHaveTextContent("プロフィール編集と更新機能を改善しました。");
@@ -72,6 +76,7 @@ describe("AppUpdatePanel", () => {
       currentVersion: "0.2.0",
       updaterConfigured: true,
       releaseChannel: "GitHub Releases / stable",
+      macosDistribution: "developer-id",
     });
     vi.mocked(api.checkForAppUpdate).mockResolvedValue(null);
     render(<AppUpdatePanel />, { wrapper: Wrapper });
@@ -87,6 +92,7 @@ describe("AppUpdatePanel", () => {
       currentVersion: "0.1.0",
       updaterConfigured: true,
       releaseChannel: "GitHub Releases / stable",
+      macosDistribution: "developer-id",
     });
     vi.mocked(api.checkForAppUpdate).mockRejectedValue(new Error("network unavailable"));
     render(<AppUpdatePanel />, { wrapper: Wrapper });

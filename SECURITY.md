@@ -18,6 +18,7 @@
 ## 配布物の信頼境界
 
 - 正式なDMGはGitHub Releasesだけから配布します。
-- macOS配布物はDeveloper ID署名とApple公証を必須とします。
+- 現在のDMGはad-hoc署名であり、Apple Developer ID署名・Apple公証は行っていません。初回起動時にGatekeeperの警告が出るため、READMEのアプリ単位の「このまま開く」手順で、公式Releaseから取得したものだけを開いてください。
 - アプリ内更新はHTTPSとTauri更新署名を必須とし、署名検証を無効化できません。
-- 更新秘密鍵とAppleの署名・公証情報はGitHub Secretsにのみ設定し、リポジトリや配布物へ同梱しません。
+- Tauri更新署名はApple署名・公証の代替ではありません。前者は更新artifactの完全性、後者はmacOSが確認する配布者・公証の信頼境界です。
+- 更新秘密鍵はGitHub `release` Environmentにのみ設定し、リポジトリや配布物へ同梱しません。将来Developer ID配布へ移行する場合も、Appleの証明書・公証資格情報は同様にSecretsだけへ設定します。

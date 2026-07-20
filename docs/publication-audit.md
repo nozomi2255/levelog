@@ -33,26 +33,26 @@ git log --all --format='%h %an <%ae> %s'
 - 既存2 commitはtree、日時、メッセージを保持したまま`nozomi2255@users.noreply.github.com`へ書き換え、`pnpm audit:public`は公開用author identityだけで合格した。
 - 書き換え前の完全な履歴は公開対象外の`.git/pre-publication-history-20260720.bundle`へ退避し、`git bundle verify`で復元可能性を確認した。
 - 空であることを確認した`https://github.com/nozomi2255/levelog.git`を`origin`へ設定した。既存のremote branchやtagは上書きしていない。
-- 監査済みsource commit `4354bd5`を通常pushし、`origin/main`とローカル`main`が同一commitであることを確認した。Release tagは作成していない。
+- 監査時点の公開対象sourceを通常pushし、`origin/main`とローカル`main`が一致することを確認した。Release tagは作成していない。以後の変更では、公開直前にこの監査とremoteの一致を再確認する。
 
-### Blocking before the first signed Release
+### Blocking before the first updater-signed Release
 
 1. **更新署名鍵が未作成。** `docs/release-runbook.md`に従い、永続保管する鍵をユーザー自身のパスワードで生成する必要がある。
-2. **Apple Developer ID配布証明書・公証secretが未設定。** 現在のローカルkeychainには有効なcode-signing identityがない。Release workflowは不足時に停止する。
 
-ソース公開の監査は合格済みである。Release workflowは上記2項目のsecretが揃うまで意図的に停止し、unsigned/ad-hoc artifactを公開しない。
+Apple Developer ID配布証明書・公証資格情報は、現在は意図的に設定しない。したがって最初のDMGはad-hoc署名であり、Apple Developer ID署名・Apple公証は行われない。ソース公開の監査は合格済みである。Release workflowはTauri更新署名の3 secretが揃うまで意図的に停止する。
 
 ## Distribution decision
 
-- 新規導入: GitHub Releasesの署名・公証済みDMG。
+- 新規導入: [GitHub Releases](https://github.com/nozomi2255/levelog/releases) のad-hoc署名DMG。Apple Developer ID署名・Apple公証は行わない。
 - 更新: GitHub Releasesの`latest.json`、アーキテクチャ別`.app.tar.gz`、Tauri更新署名。
 - 対応: macOS 11以降、Apple Silicon / Intel。
 - 更新チャネル: build時に固定するHTTPS URL。WebViewやユーザー入力から変更しない。
 - 更新鍵: public keyはアプリへ固定し、private keyはGitHub `release` Environmentだけへ渡す。
-- Apple署名: Developer ID ApplicationとApple公証を必須化し、ad-hoc/unsigned Releaseへ自動fallbackしない。
+- Apple署名: 現在は導入しない。将来のDeveloper ID ApplicationとApple公証は、別途明示して移行する。
 
 ## Residual risks
 
 - 依存関係のライセンス・脆弱性は時間とともに変わるため、GitHub dependency graph、Dependabot、各Release前のreviewを継続する。
 - GitHub-hosted ReleaseとActionsが侵害されても、更新private keyが守られていれば不正artifactはアプリ側で拒否される。ただし秘密鍵を同じCIへ渡す以上、Release Environmentの承認・最小権限・Action SHA固定が重要である。
-- Developer IDとTauri更新署名は別の信頼境界であり、どちらか一方だけでは正式配布条件を満たさない。
+- 初回導入DMGにはAppleの開発者本人性確認・公証がないため、Gatekeeper警告が表示される。公式Release URLだけを案内し、`SHA256SUMS.txt`で破損を確認する。SHA-256照合は配布者の本人性を証明しない。
+- Tauri更新署名とApple Developer ID署名・公証は別の信頼境界である。Tauri更新署名は更新artifactの改ざん検出を担うが、初回DMGのAppleによる確認を代替しない。
