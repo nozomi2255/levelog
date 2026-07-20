@@ -12,7 +12,7 @@
    - Private vulnerability reporting
    - Dependency graph、Dependabot alerts、secret scanning、push protection
    - ActionsはGitHubと明示的に許可したpublisherだけを許可し、可能ならfull-length SHA pinningを必須化
-4. `release` Environmentを作り、必要に応じて承認者と保護ルールを設定する。
+4. `release` Environmentを作り、可能なら承認者と保護ルールを設定する。Environmentを使わない場合でも、秘密値はRepository Actions Secretsへ限定する。
 
 ## 2. Tauri更新署名鍵
 
@@ -25,7 +25,7 @@ pnpm tauri signer generate -w ~/.tauri/levelog.key
 
 生成前に保存先を用意し、生成時に強いパスワードを設定します。秘密鍵`~/.tauri/levelog.key`、公開鍵`~/.tauri/levelog.key.pub`、秘密鍵の暗号化バックアップ、鍵のパスワードは、互いに別の管理された場所で保管してください。秘密鍵・バックアップ・パスワードはリポジトリ、GitHub Issue、Release asset、Actions logへ置きません。
 
-GitHubの`release` Environmentへ次を登録します。
+GitHub Actions Secretsへ次を登録します。Repository Secretsでも動作しますが、可能なら`release` Environment Secretsとして登録し、Release jobだけに限定します。
 
 | Secret | 内容 |
 | --- | --- |
@@ -37,7 +37,7 @@ GitHubの`release` Environmentへ次を登録します。
 
 ## 3. 現在の配布方針と将来のDeveloper ID移行
 
-現在のReleaseに必要なGitHub `release` Environmentのsecretは、次の3つだけです。
+現在のReleaseに必要なGitHub Actions Secretは、次の3つだけです。
 
 | Secret | 内容 |
 | --- | --- |
@@ -72,10 +72,14 @@ cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D w
 cargo test --locked --manifest-path src-tauri/Cargo.toml
 ```
 
-4. 変更をレビュー・commitし、versionと同じ署名付きtagをpushする。
+4. 変更をレビュー・commitし、versionと同じtagをpushする。Git tag署名鍵を設定済みなら署名付きtag、未設定ならannotated tagを使う。どちらの場合も、配布物自体はTauri Updater鍵で署名される。
 
 ```bash
+# Git tag署名鍵を設定済みの場合
 git tag -s v0.1.0 -m "Levelog v0.1.0"
+
+# Git tag署名鍵を未設定の場合
+git tag -a v0.1.0 -m "Levelog v0.1.0"
 git push origin main
 git push origin v0.1.0
 ```

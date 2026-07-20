@@ -21,4 +21,4 @@
 - 現在のDMGはad-hoc署名であり、Apple Developer ID署名・Apple公証は行っていません。初回起動時にGatekeeperの警告が出るため、READMEのアプリ単位の「このまま開く」手順で、公式Releaseから取得したものだけを開いてください。
 - アプリ内更新はHTTPSとTauri更新署名を必須とし、署名検証を無効化できません。
 - Tauri更新署名はApple署名・公証の代替ではありません。前者は更新artifactの完全性、後者はmacOSが確認する配布者・公証の信頼境界です。
-- 更新秘密鍵はGitHub `release` Environmentにのみ設定し、リポジトリや配布物へ同梱しません。将来Developer ID配布へ移行する場合も、Appleの証明書・公証資格情報は同様にSecretsだけへ設定します。
+- 更新秘密鍵はGitHub Actions Secretsにのみ設定し、リポジトリや配布物へ同梱しません。可能な場合は承認ルールを持つ`release` Environmentへ限定します。将来Developer ID配布へ移行する場合も、Appleの証明書・公証資格情報は同様にSecretsだけへ設定します。

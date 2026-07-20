@@ -4,6 +4,8 @@ Levelogの利用者向け変更を記録します。形式は[Keep a Changelog](
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-20
+
 ### Added
 
 - GitHub ReleasesからTauri更新署名を検証して更新を確認・インストール・再起動する設定画面
@@ -17,3 +19,5 @@ Levelogの利用者向け変更を記録します。形式は[Keep a Changelog](
 - 更新エンドポイントと公開鍵をReleaseビルド時に固定し、WebViewから任意URLを指定できない設計
 - Tauri更新署名の秘密情報が不足したReleaseをfail closedにする運用を追加
 - 両アーキテクチャのDMGと更新署名が揃うまでGitHub ReleaseをDraftに保つ公開gate
+- Apple Developer ID署名・Apple公証を行わないad-hoc配布であることを、アプリ、README、Release notesへ明示
+- 各更新archiveを埋め込み公開鍵で暗号検証し、DMGの`SHA256SUMS.txt`を公開前に生成するRelease gate

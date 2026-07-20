@@ -53,7 +53,7 @@ for (const required of [
   "CONTRIBUTING.md",
   "scripts/generate-third-party-notices.mjs",
   "scripts/generate-release-config.mjs",
-  "scripts/generate-release-config.test.mjs",
+  "scripts/generate-release-config.node-tests.mjs",
   "src-tauri/resources/README.md",
   ".github/workflows/ci.yml",
   ".github/workflows/release.yml",
@@ -62,7 +62,7 @@ for (const required of [
 }
 
 try {
-  execFileSync(process.execPath, ["--test", "scripts/generate-release-config.test.mjs"], {
+  execFileSync(process.execPath, ["--test", "scripts/generate-release-config.node-tests.mjs"], {
     cwd: root,
     stdio: "pipe",
   });

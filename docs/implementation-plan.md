@@ -564,6 +564,11 @@ endpoint, key, download URL, or binary. Custom Tauri Commands build the updater 
 hold at most one verified pending release, stream download progress, install only after an explicit click,
 and restart after signature verification and replacement.
 
+The same public key and HTTPS endpoint generate a private-material-free Tauri bundler config under the ignored
+`src-tauri/target` tree. Each architecture's `.app.tar.gz` is then verified against its `.sig` with the same
+Minisign algorithm used by `tauri-plugin-updater`. The final Draft gate also binds both `latest.json` entries to
+distinct archives and exact signature assets in the current repository/tag before publishing.
+
 ### Phase 5 task ledger
 
 | ID | Owner | Status | Depends on | Area |
@@ -578,11 +583,11 @@ and restart after signature verification and replacement.
 | P5-HISTORY | User + Orchestrator | completed | P5-AUDIT | verified local backup, no-reply history rewrite, empty GitHub origin |
 | P5-SOURCE-PUBLISH | Orchestrator | completed | P5-HISTORY/P5-VERIFY | audited no-reply source commit pushed to origin/main without a Release tag |
 | P5-UNSIGNED-DESIGN | Orchestrator | completed | P5-SOURCE-PUBLISH | explicit ad-hoc DMG plus mandatory Tauri updater trust boundary |
-| P5-UNSIGNED-WORKFLOW | Agent unsigned_release_implementation | in_progress | P5-UNSIGNED-DESIGN | Release workflow, explicit ad-hoc signing, artifact completeness |
-| P5-UNSIGNED-UX | Agent updater_unsigned_implementation | in_progress | P5-UNSIGNED-DESIGN | accurate updater verification and distribution-status UI/tests |
-| P5-UNSIGNED-DOCS | Agent unsigned_distribution_docs | in_progress | P5-UNSIGNED-DESIGN | install warning, safe first-open flow, security/runbook/audit updates |
-| P5-UNSIGNED-REVIEW | Orchestrator + independent reviewer | pending | P5-UNSIGNED-WORKFLOW/P5-UNSIGNED-UX/P5-UNSIGNED-DOCS | integrated security and requirement review |
-| P5-PUBLISH | User + Orchestrator | blocked | P5-UNSIGNED-REVIEW | one-time long-lived Tauri updater key and protected GitHub secrets |
+| P5-UNSIGNED-WORKFLOW | Agent unsigned_release_implementation | completed | P5-UNSIGNED-DESIGN | Release workflow, generated bundler config, explicit ad-hoc signing, cryptographic artifact gate |
+| P5-UNSIGNED-UX | Agent updater_unsigned_implementation | completed | P5-UNSIGNED-DESIGN | accurate updater verification and distribution-status UI/tests |
+| P5-UNSIGNED-DOCS | Agent unsigned_distribution_docs | completed | P5-UNSIGNED-DESIGN | install warning, safe first-open flow, security/runbook/audit updates |
+| P5-UNSIGNED-REVIEW | Orchestrator + independent reviewer | completed | P5-UNSIGNED-WORKFLOW/P5-UNSIGNED-UX/P5-UNSIGNED-DOCS | integrated security review, P2/P3 remediation, closure re-review |
+| P5-PUBLISH | User + Orchestrator | in_progress | P5-UNSIGNED-REVIEW | updater key/Secrets completed; commit, hosted CI, tag Release and installed-update smoke remain |
 
 Phase 5 acceptance requires:
 
@@ -705,8 +710,10 @@ Completed:
   cannot be supplied by the webview, require HTTPS, keep at most one checked update, stream bounded download
   progress, verify Tauri signatures, and restart only after an explicit Settings action. Development builds
   clearly report that the channel is not configured.
-- Added SHA-pinned CI and a two-architecture macOS Release pipeline. Missing Tauri/Apple credentials fails
-  closed; artifacts remain a Draft until both DMGs and both signed `latest.json` platform entries exist.
+- Added SHA-pinned CI and a two-architecture macOS Release pipeline. Missing Tauri updater credentials fails
+  closed; Apple credentials are intentionally unnecessary. Artifacts remain a Draft until both DMGs, both
+  cryptographically verified updater archives/signatures, tag-bound `latest.json` entries, and DMG checksums
+  exist.
 - Created a repository-owned Levelog icon from the Personal Evidence Graph concept: connected confirmed,
   active, and future evidence nodes over an upward layered form. The transparent 1254px source, provenance,
   and generated platform variants are tracked; the app bundle now declares and contains a 1024px ICNS.
@@ -796,13 +803,17 @@ pnpm build                                    passed
 pnpm test:e2e                                 passed: 33 tests / 3 viewports
 cargo fmt --check                             passed
 cargo clippy --locked --all-targets           passed with -D warnings
-cargo test --locked                           passed: 36 tests; 1 real smoke ignored
+cargo test --locked                           passed: 39 tests; real Codex and release verifier smokes ignored
+release config generator tests                passed: 5 tests
+ephemeral-key updater verifier                passed: 1 cryptographic artifact verification
 pnpm tauri build                              passed: Levelog.app + arm64 DMG
+ad-hoc Release config smoke                   passed: arm64 app/DMG/app.tar.gz/.sig without Apple credentials
 Levelog.app bundle                            arm64, com.levelog.desktop, v0.1.0
 Levelog.app resources                         icon.icns 1024px + exact LICENSE/notices copies
 hdiutil verify                                passed: DMG checksum valid
-pnpm audit:public                             source/assets passed; blocked only by historic author email
-ad-hoc dual-architecture release              pending P5-PUBLISH updater credentials
+pnpm audit:public                             passed: 175 tracked files / 2 approved author emails
+independent unsigned-release review           passed: no remaining P0/P1/P2
+ad-hoc dual-architecture release              pending hosted tag workflow
 live update from previous release build       pending first two Tauri-signed Releases
 ```
 
@@ -816,8 +827,10 @@ Known issues and deliberate limits:
 - The public `main` history now uses one GitHub no-reply identity and `origin` targets the confirmed-empty
   `nozomi2255/levelog` repository. The replaced unpublished history exists only in a verified local `.git`
   bundle and must never be added to the repository.
-- A long-lived Tauri updater signing key has not been generated. It is the remaining credential blocker for
-  P5-PUBLISH; the updater does not accept unsigned artifacts or source-code fallback paths.
+- The long-lived Tauri updater keypair has been generated by the user, and the three required repository
+  Actions Secret names were confirmed through GitHub without reading their values. Encrypted backup and
+  password custody remain the user's operational responsibility; an approval-protected Environment scope is
+  recommended as future hardening.
 - The audited source is published at `https://github.com/nozomi2255/levelog`; local and remote `main` matched
   commit `4354bd5` immediately after the initial push. No Release tag or unsigned public artifact was created.
 - The first hosted CI exposed a pnpm configuration mismatch because the lockfile recorded
@@ -849,8 +862,9 @@ Known issues and deliberate limits:
 
 Next task:
 
-> Complete P5-UNSIGNED-WORKFLOW, then integrate the updater UI and public documentation changes before the
-> one-time Tauri updater key ceremony.
+> Commit and push the audited Release changes, confirm hosted CI, then push the annotated `v0.1.0` tag. Inspect
+> both architecture assets, `SHA256SUMS.txt`, updater signatures, and `latest.json` before closing the first
+> public Release; a previous-version in-app update remains pending until a second version exists.
 
 ## Resume procedure
 
