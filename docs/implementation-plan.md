@@ -810,6 +810,10 @@ Known issues and deliberate limits:
   `injectWorkspacePackages: true` from the development environment while the clean runner default differed.
   Repository-level `.npmrc` now fixes that lockfile input explicitly so local, CI, Release, and Dependabot
   frozen installs use the same setting.
+- Hosted Linux Playwright correctly ran 30 functional journeys but could not consume target-specific Darwin
+  image baselines. The functional job now skips only the three screenshot assertions outside macOS, while a
+  required parallel `macOS visual regression` job runs those three viewport comparisons on the distribution
+  platform. Visual coverage is separated by platform rather than disabled.
 - Intel packaging and a real signed previous-version-to-current-version update cannot be reproduced locally
   on the current Apple Silicon host without the release credentials. The Release workflow builds both and
   keeps them Draft until its completeness gate passes; manual post-release validation remains required.
