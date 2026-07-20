@@ -30,9 +30,10 @@ git log --all --format='%h %an <%ae> %s'
 - `.gitignore`は環境ファイル、秘密鍵・証明書、署名生成物、build/test生成物を除外する。
 - npm/Cargoのロック済み依存関係848件を検査し、不明ライセンス、またはpermissiveな`OR`選択肢がない強いcopyleft/source-available条件を検出した場合に失敗する通知生成を追加した。237個の重複排除済みlicense/notice本文とMIT Licenseをapp resourceへ同梱する。
 - MIT License、Security Policy、Contribution Guide、CI、Dependabot、fail-closed Release workflowを追加した。
-- 既存2 commitはtree、日時、メッセージを保持したまま`nozomi2255@users.noreply.github.com`へ書き換え、`pnpm audit:public`は171ファイル・1公開用author emailで合格した。
+- 既存2 commitはtree、日時、メッセージを保持したまま`nozomi2255@users.noreply.github.com`へ書き換え、`pnpm audit:public`は170ファイル・1公開用author emailで合格した。
 - 書き換え前の完全な履歴は公開対象外の`.git/pre-publication-history-20260720.bundle`へ退避し、`git bundle verify`で復元可能性を確認した。
 - 空であることを確認した`https://github.com/nozomi2255/levelog.git`を`origin`へ設定した。既存のremote branchやtagは上書きしていない。
+- 監査済みsource commit `4354bd5`を通常pushし、`origin/main`とローカル`main`が同一commitであることを確認した。Release tagは作成していない。
 
 ### Blocking before the first signed Release
 

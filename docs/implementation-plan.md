@@ -569,7 +569,7 @@ and restart after signature verification and replacement.
 | P5-LEGAL | Orchestrator | completed | P5-OSS | locked dependency license validation and bundled notices |
 | P5-VERIFY | Orchestrator | completed | P5-CI/P5-ICON/P5-LEGAL | local frontend/Rust/Playwright/arm64 DMG verification |
 | P5-HISTORY | User + Orchestrator | completed | P5-AUDIT | verified local backup, no-reply history rewrite, empty GitHub origin |
-| P5-SOURCE-PUBLISH | Orchestrator | in_progress | P5-HISTORY/P5-VERIFY | commit audited working tree and push main without a Release tag |
+| P5-SOURCE-PUBLISH | Orchestrator | completed | P5-HISTORY/P5-VERIFY | audited no-reply source commit pushed to origin/main without a Release tag |
 | P5-PUBLISH | User + Orchestrator | blocked | P5-SOURCE-PUBLISH | long-lived updater key and Apple credentials |
 
 Phase 5 acceptance requires:
@@ -804,6 +804,8 @@ Known issues and deliberate limits:
   bundle and must never be added to the repository.
 - A long-lived Tauri updater signing key has not been generated. This and the Apple credentials are explicit
   P5-PUBLISH blockers, not source-code fallback paths.
+- The audited source is published at `https://github.com/nozomi2255/levelog`; local and remote `main` matched
+  commit `4354bd5` immediately after the initial push. No Release tag or unsigned public artifact was created.
 - Intel packaging and a real signed previous-version-to-current-version update cannot be reproduced locally
   on the current Apple Silicon host without the release credentials. The Release workflow builds both and
   keeps them Draft until its completeness gate passes; manual post-release validation remains required.
@@ -821,8 +823,8 @@ Known issues and deliberate limits:
 
 Next task:
 
-> After the audited source commit is pushed to `origin/main`, obtain user-controlled password and backup
-> locations for the irreplaceable Tauri updater private key, generate it exactly once, and configure the
+> Obtain user-controlled password and backup locations for the irreplaceable Tauri updater private key,
+> generate it exactly once, and configure the
 > protected GitHub `release` Environment together with the Apple Developer ID/notarization credentials.
 
 ## Resume procedure
