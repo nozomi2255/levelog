@@ -803,6 +803,20 @@ mod tests {
     }
 
     #[test]
+    fn activity_schema_uses_supported_nullable_object_type() {
+        let schema: serde_json::Value = serde_json::from_str(activity_schema()).unwrap();
+        let next_question = &schema["properties"]["nextQuestion"];
+        assert!(next_question.get("oneOf").is_none());
+        assert_eq!(next_question["type"], serde_json::json!(["object", "null"]));
+        assert_eq!(next_question["additionalProperties"], false);
+        assert!(
+            next_question["required"]
+                .as_array()
+                .is_some_and(|required| required.iter().any(|field| field == "questionId"))
+        );
+    }
+
+    #[test]
     fn activity_v2_decodes_structured_question_and_specialized_skill() {
         let output = decode::<ActivityAnalysisOutput>(
             serde_json::json!({

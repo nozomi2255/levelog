@@ -4,6 +4,13 @@ Levelogの利用者向け変更を記録します。形式は[Keep a Changelog](
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-21
+
+### Fixed
+
+- CodexのStructured Outputで未対応の`oneOf`を使用していたため、活動分析が開始前に失敗する問題を修正
+- 活動分析Schemaをnullable object形式へ変更し、実Codex接続で分析結果を生成できることを検証
+
 ## [0.1.2] - 2026-07-21
 
 ### Changed
