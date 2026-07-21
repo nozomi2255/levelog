@@ -1,6 +1,6 @@
 [package]
 name = "levelog"
-version = "0.1.1"
+version = "0.1.2"
 description = "A local growth OS for macOS"
 authors = ["Levelog"]
 license = "MIT"
