@@ -42,7 +42,7 @@ pub async fn update_codex_path(
     state: State<'_, AppState>,
     input: CodexConnectionInput,
 ) -> Result<AppSettingsDto, AppError> {
-    let canonical = crate::infrastructure::codex::discovery::canonical_executable(
+    let executable = crate::infrastructure::codex::discovery::validate_executable(
         std::path::Path::new(input.codex_path.trim()),
     )
     .map_err(AppError::Validation)?;
@@ -54,7 +54,7 @@ pub async fn update_codex_path(
         .map_err(|_| AppError::InvalidState("Codex実行キューを開始できませんでした".into()))?;
     let connection = tokio::time::timeout(
         TIMEOUT,
-        super::codex::test_connection(canonical.to_string_lossy().into_owned()),
+        super::codex::test_connection(executable.launch_path.to_string_lossy().into_owned()),
     )
     .await
     .map_err(|_| AppError::Codex("Codex接続確認が180秒でタイムアウトしました".into()))?;

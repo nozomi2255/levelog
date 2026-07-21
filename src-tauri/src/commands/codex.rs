@@ -5,14 +5,14 @@
 
 use crate::{
     dto::CodexConnectionStatus,
-    infrastructure::codex::{CodexClient, TokioProcessRunner, discovery::canonical_executable},
+    infrastructure::codex::{CodexClient, TokioProcessRunner, discovery::validate_executable},
 };
 use std::path::PathBuf;
 
 pub async fn test_connection(codex_path: String) -> CodexConnectionStatus {
     let discovered_path = PathBuf::from(codex_path);
-    let path = match canonical_executable(&discovered_path) {
-        Ok(path) => path,
+    let executable = match validate_executable(&discovered_path) {
+        Ok(executable) => executable,
         Err(message) => {
             return CodexConnectionStatus {
                 available: false,
@@ -23,8 +23,8 @@ pub async fn test_connection(codex_path: String) -> CodexConnectionStatus {
             };
         }
     };
-    let display_path = path.display().to_string();
-    match CodexClient::new(path, TokioProcessRunner) {
+    let display_path = executable.launch_path.display().to_string();
+    match CodexClient::new(executable.launch_path, TokioProcessRunner) {
         Ok(client) => match client.probe().await {
             Ok(connection) => CodexConnectionStatus {
                 available: true,

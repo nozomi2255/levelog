@@ -62,9 +62,10 @@ cargo test --manifest-path src-tauri/Cargo.toml
 pnpm tauri build
 ```
 
-実Codex smoke testは通常テストから分離しています。
+実Codex smoke testは通常テストから分離しています。`test:codex-connection-smoke`はローカルCLIの接続・安全機能だけを確認し、推論リクエストは送信しません。
 
 ```bash
+LEVELOG_CODEX_PATH=/absolute/path/to/codex pnpm test:codex-connection-smoke
 LEVELOG_CODEX_PATH=/absolute/path/to/codex pnpm test:codex-smoke
 ```
 

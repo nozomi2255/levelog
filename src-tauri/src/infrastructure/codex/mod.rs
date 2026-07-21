@@ -75,6 +75,10 @@ pub enum CodexError {
     RelativePath(String),
     #[error("Codex CLIにログインしていません。ターミナルで `codex login` を実行してください")]
     NotLoggedIn,
+    #[error(
+        "Codex CLIのログイン状態を確認できませんでした（終了コード: {status}）。接続テストをもう一度実行してください"
+    )]
+    LoginStatusProbeFailed { status: i32 },
     #[error("インストール済みCodex CLIは必要な安全機能に対応していません: {0}")]
     Incompatible(String),
     #[error("Codex処理が180秒でタイムアウトしました")]
@@ -208,9 +212,7 @@ impl<R: ProcessRunner> CodexClient<R> {
         let login = self
             .run_args(vec!["login".into(), "status".into()], &dir, None)
             .await?;
-        if login.status != 0 || !login.stdout.to_lowercase().contains("logged in") {
-            return Err(CodexError::NotLoggedIn);
-        }
+        require_authenticated_login_status(&login)?;
         let help = self
             .run_args(vec!["exec".into(), "--help".into()], &dir, None)
             .await?;
@@ -576,6 +578,34 @@ fn require_success(output: &ProcessOutput) -> Result<(), CodexError> {
         }))
     }
 }
+
+/// `codex login status` is a CLI status command, so exit code zero is its authentication-success
+/// contract. Human-readable output differs between packaged builds and may be written to stderr.
+/// Known explicit logout messages override a zero exit; every other nonzero status is a diagnostic
+/// probe failure rather than a claim that the user is logged out. Do not surface the output here:
+/// stderr can contain environment details that must not reach the UI.
+fn require_authenticated_login_status(output: &ProcessOutput) -> Result<(), CodexError> {
+    let status_text = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
+    let negative_markers = [
+        "not logged in",
+        "not authenticated",
+        "logged out",
+        "unauthenticated",
+    ];
+    if negative_markers
+        .iter()
+        .any(|marker| status_text.contains(marker))
+    {
+        return Err(CodexError::NotLoggedIn);
+    }
+    if output.status == 0 {
+        Ok(())
+    } else {
+        Err(CodexError::LoginStatusProbeFailed {
+            status: output.status,
+        })
+    }
+}
 fn decode<T: DeserializeOwned>(json: String, schema: &'static str) -> Result<T, CodexError> {
     let value: serde_json::Value =
         serde_json::from_str(&json).map_err(|err| CodexError::InvalidJsonOutput {
@@ -636,6 +666,17 @@ mod tests {
             stderr: String::new(),
         })
     }
+    fn process_output(
+        status: i32,
+        stdout: &str,
+        stderr: &str,
+    ) -> Result<ProcessOutput, CodexError> {
+        Ok(ProcessOutput {
+            status,
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+        })
+    }
     fn fake_path() -> PathBuf {
         std::env::current_exe().unwrap()
     }
@@ -665,6 +706,39 @@ mod tests {
         )
         .unwrap();
         assert_eq!(client.probe().await.unwrap_err(), CodexError::NotLoggedIn);
+    }
+    #[tokio::test]
+    async fn probe_accepts_authenticated_status_emitted_to_stderr_by_macos_app_cli() {
+        let mut replies = compatible_replies();
+        replies[1] = process_output(
+            0,
+            "",
+            "WARNING: proceeding, even though we could not create PATH aliases: Operation not permitted\nLogged in using ChatGPT\n",
+        );
+        let client = CodexClient::new(fake_path(), FakeRunner::new(replies)).unwrap();
+
+        assert!(client.probe().await.is_ok());
+    }
+    #[test]
+    fn login_status_uses_exit_status_without_exposing_stderr() {
+        assert!(
+            require_authenticated_login_status(
+                &process_output(0, "", "unrecognized but successful output").unwrap()
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            require_authenticated_login_status(
+                &process_output(1, "", "database at /private/path failed").unwrap()
+            )
+            .unwrap_err(),
+            CodexError::LoginStatusProbeFailed { status: 1 }
+        );
+        assert_eq!(
+            require_authenticated_login_status(&process_output(0, "not logged in", "").unwrap())
+                .unwrap_err(),
+            CodexError::NotLoggedIn
+        );
     }
     #[tokio::test]
     async fn probe_rejects_missing_safety_feature() {
@@ -771,6 +845,19 @@ mod tests {
                 .map(|question| question.target.as_str()),
             Some("measurement")
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "probes the explicitly configured real Codex CLI; run only with an explicit command"]
+    async fn real_codex_connection_probe_test() {
+        let path = std::env::var("LEVELOG_CODEX_PATH")
+            .expect("set LEVELOG_CODEX_PATH to the absolute Codex CLI path");
+        let connection = CodexClient::new(PathBuf::from(path), TokioProcessRunner)
+            .unwrap()
+            .probe()
+            .await
+            .unwrap();
+        assert!(!connection.version.trim().is_empty());
     }
 
     #[tokio::test]

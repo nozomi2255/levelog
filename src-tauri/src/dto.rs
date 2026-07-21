@@ -128,6 +128,9 @@ pub struct UpdateUserProfileInput {
 #[serde(rename_all = "camelCase")]
 pub struct CodexPathCandidateDto {
     pub discovered_path: String,
+    /// Absolute path that must be executed. This can intentionally be a symlink (for example a
+    /// Volta shim), so it is distinct from `canonical_path` used only for validation/deduping.
+    pub launch_path: String,
     pub canonical_path: String,
     pub source: String,
     pub executable: bool,

@@ -37,6 +37,7 @@ export interface CodexConnectionStatus {
 
 export interface CodexPathCandidateDto {
   discoveredPath: string;
+  launchPath: string;
   canonicalPath: string;
   source: string;
   executable: boolean;
