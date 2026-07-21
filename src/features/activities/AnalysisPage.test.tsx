@@ -34,16 +34,20 @@ function renderPage() {
 describe("AnalysisPage", () => {
   beforeEach(() => {
     vi.mocked(api.getActivity).mockResolvedValue(activity);
-    vi.mocked(api.getAnalysisPreview).mockResolvedValue({ activityId: "activity-1", submittedPayload: "{\n  \"activity\": \"safe\"\n}", cloudInferenceNotice: "Codexへ送信されます" });
+    vi.mocked(api.getAnalysisPreview).mockResolvedValue({ activityId: "activity-1", submittedPayload: JSON.stringify({ activity: { occurredOn: "2026-07-20", rawText: "要件を整理した", whatIDid: "関係者と確認した" }, explicitProfile: { role: "システムエンジニア", growthGoal: "設計力を伸ばす", focusSkillIds: ["thinking.information_structuring"] }, interviewAnswers: [] }), cloudInferenceNotice: "Codexへ送信されます" });
     vi.mocked(api.getActivityAnalysis).mockResolvedValue(analysis);
     vi.mocked(api.getActivityWorkflow).mockResolvedValue({ activityId: "activity-1", state: "review_pending", version: 1, currentQuestion: null, updatedAt: "2026-07-20T00:00:00.000Z" });
     vi.mocked(api.confirmActivityAnalysis).mockResolvedValue({ analysisId: "analysis-1", confirmedObservationCount: 1, xpAwarded: 20 });
   });
 
-  it("shows an editable payload before an analysis starts", async () => {
+  it("shows a human-readable submission review and keeps JSON details collapsed", async () => {
     renderPage();
     expect(await screen.findByRole("heading", { name: "経験を整理する" })).toBeInTheDocument();
-    expect((screen.getByLabelText("送信するJSON") as HTMLTextAreaElement).value).toContain("safe");
+    expect(screen.getByRole("heading", { name: "AIに送る内容を確認" })).toBeInTheDocument();
+    expect(screen.getByText("要件を整理した")).toBeInTheDocument();
+    expect(screen.getByText("システムエンジニア")).toBeInTheDocument();
+    expect(screen.getByText("技術的な送信データを表示（JSON）")).toBeInTheDocument();
+    expect(screen.queryByLabelText("送信するJSON")).not.toBeInTheDocument();
     expect(screen.getByText(/Codexへ送信されます/)).toBeInTheDocument();
   });
 

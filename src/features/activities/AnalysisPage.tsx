@@ -12,7 +12,6 @@ const toDraft = (candidate: SkillCandidateDto): Draft => ({ decision: candidate.
 export function AnalysisPage() {
   const { activityId = "" } = useParams();
   const client = useQueryClient();
-  const [payload, setPayload] = useState("");
   const [questPayload, setQuestPayload] = useState<string | null>(null);
   const [startedAnalysisId, setStartedAnalysisId] = useState<string | null>(null);
   const [ignorePrevious, setIgnorePrevious] = useState(false);
@@ -24,7 +23,7 @@ export function AnalysisPage() {
   const existingAnalysisId = ignorePrevious ? null : activity.data?.analyses[0]?.id ?? null;
   const analysisId = startedAnalysisId ?? existingAnalysisId;
   const analysis = useQuery({ queryKey: ["analysis", analysisId], queryFn: () => api.getActivityAnalysis(analysisId!), enabled: Boolean(analysisId), refetchInterval: (query) => ["pending", "running"].includes(query.state.data?.status ?? "") ? 1500 : false });
-  const submittedPayload = payload || preview.data?.submittedPayload || "";
+  const submittedPayload = preview.data?.submittedPayload || "";
   const start = useMutation({ mutationFn: () => api.startActivityAnalysis({ activityId, submittedPayload }), onSuccess: (job) => { setStartedAnalysisId(job.id); setIgnorePrevious(false); void client.invalidateQueries({ queryKey: ["activity-workflow", activityId] }); void client.invalidateQueries({ queryKey: ["activity-inbox"] }); } });
   const cancel = useMutation({ mutationFn: () => api.cancelActivityAnalysis(analysisId!), onSuccess: () => { void client.invalidateQueries({ queryKey: ["analysis", analysisId] }); void client.invalidateQueries({ queryKey: ["activity-workflow", activityId] }); } });
   const answer = useMutation({ mutationFn: (input: { question: InterviewQuestionDto; answerState: "answered" | "unknown" | "skipped" | "deferred"; answer: string | null }) => api.answerActivityQuestion({ sessionId: input.question.sessionId, questionId: input.question.questionId, answerState: input.answerState, answer: input.answer }), onSuccess: async (nextWorkflow) => { client.setQueryData(["activity-workflow", activityId], nextWorkflow); await Promise.all([client.invalidateQueries({ queryKey: ["analysis-preview", activityId], exact: true }), client.invalidateQueries({ queryKey: ["activity-inbox"] })]); } });
@@ -33,7 +32,7 @@ export function AnalysisPage() {
   const confirm = useMutation({ mutationFn: () => api.confirmActivityAnalysis({ analysisId: analysisId!, candidateDecisions: decisions }), onSuccess: () => { void client.invalidateQueries({ queryKey: ["analysis", analysisId] }); void client.invalidateQueries({ queryKey: ["activity-workflow", activityId] }); void client.invalidateQueries({ queryKey: ["activity-inbox"] }); void client.invalidateQueries({ queryKey: ["dashboard"] }); void client.invalidateQueries({ queryKey: ["skills"] }); } });
   const questPreview = useQuery({ queryKey: ["quest-preview", activityId, analysisId], queryFn: () => api.getQuestPreview({ activityId, analysisId: analysisId! }), enabled: Boolean(analysisId && analysis.data?.status === "confirmed"), retry: false });
   const quest = useMutation({ mutationFn: () => api.generateQuest({ activityId, analysisId: analysisId!, submittedPayload: questPayload ?? questPreview.data?.submittedPayload ?? null }), onSuccess: () => { void client.invalidateQueries({ queryKey: ["quests"] }); void client.invalidateQueries({ queryKey: ["dashboard"] }); } });
-  const retry = () => { setStartedAnalysisId(null); setIgnorePrevious(true); setDrafts({}); setPayload(""); setQuestPayload(null); };
+  const retry = () => { setStartedAnalysisId(null); setIgnorePrevious(true); setDrafts({}); setQuestPayload(null); };
   const analysisStatus = analysis.data?.status;
   useEffect(() => {
     if (!analysisId || !analysisStatus || !["succeeded", "failed", "cancelled", "confirmed"].includes(analysisStatus)) return;
@@ -52,7 +51,7 @@ export function AnalysisPage() {
   if (activity.isError || preview.isError || workflow.isError) return <HudPanel title="AI分析"><p role="alert">{String(activity.error ?? preview.error ?? workflow.error)}</p></HudPanel>;
   const result = analysis.data;
   return <section className="feature-page feature-page--narrow" aria-labelledby="analysis-title"><header className="page-heading"><div><p className="hud-kicker">HUMAN CONFIRMATION REQUIRED</p><h1 id="analysis-title">経験を整理する</h1><p>AIは提案者です。事実・推測・スキル候補を分け、あなたが確認したものだけを証拠にします。</p></div><Link to="/activities/inbox">インボックスへ</Link></header>
-    {!analysisId && <HudPanel title="Codexへ送信する内容"><p className="cloud-notice"><HudBadge tone="gold">CLOUD</HudBadge> {preview.data.cloudInferenceNotice}</p><label className="field">送信するJSON<textarea name="analysisPayload" autoComplete="off" className="json-editor" aria-label="送信するJSON" value={submittedPayload} onChange={(event) => setPayload(event.target.value)} rows={14} spellCheck={false} /></label><div className="form-actions"><HudButton tone="gold" onClick={() => start.mutate()} disabled={start.isPending}>{start.isPending ? "送信中…" : "内容を確認して送信"}</HudButton></div>{start.error && <p role="alert">{String(start.error)}</p>}</HudPanel>}
+    {!analysisId && <HudPanel title="AIに送る内容を確認"><p className="cloud-notice"><HudBadge tone="gold">CLOUD</HudBadge> {preview.data.cloudInferenceNotice}</p><AnalysisSubmissionReview payload={submittedPayload} /><div className="form-actions"><HudButton tone="gold" onClick={() => start.mutate()} disabled={start.isPending}>{start.isPending ? "送信中…" : "この内容でAIに送る"}</HudButton></div>{start.error && <p role="alert">{String(start.error)}</p>}</HudPanel>}
     {analysisId && analysis.isPending && <HudPanel title="AI分析"><p role="status">分析状態を読み込んでいます…</p></HudPanel>}
     {analysis.isError && <HudPanel title="AI分析"><p role="alert">{String(analysis.error)}</p><HudButton onClick={() => void analysis.refetch()}>再読込</HudButton></HudPanel>}
     {result && <AnalysisResult result={result} workflowState={workflow.data.state} drafts={drafts} setDrafts={setDrafts} onConfirm={() => confirm.mutate()} allDecided={allDecided} confirming={confirm.isPending} onCancel={() => cancel.mutate()} cancelling={cancel.isPending} onRetry={retry} />}
@@ -65,6 +64,37 @@ export function AnalysisPage() {
     {quest.data && <p className="result-message" role="status">クエスト「{quest.data.title}」を作成しました。</p>}
     {confirm.error && <p role="alert">{String(confirm.error)}</p>}{quest.error && <p role="alert">{String(quest.error)}</p>}
   </section>;
+}
+
+type SubmissionPayload = {
+  activity?: { occurredOn?: string; rawText?: string; whatChanged?: string; whatIDid?: string; whatWasDifficult?: string };
+  explicitProfile?: { role?: string; growthGoal?: string; focusSkillIds?: string[] };
+  interviewAnswers?: unknown[];
+};
+
+function AnalysisSubmissionReview({ payload }: { payload: string }) {
+  let parsed: SubmissionPayload | null = null;
+  try { parsed = JSON.parse(payload) as SubmissionPayload; } catch { /* The raw payload remains available below for diagnostics. */ }
+  const activity = parsed?.activity;
+  const profile = parsed?.explicitProfile;
+  const focusSkills = (profile?.focusSkillIds ?? []).map((id) => SKILL_NAMES.get(id) ?? id);
+  const details = [
+    ["活動日", activity?.occurredOn],
+    ["記録したこと", activity?.rawText],
+    ["自分がしたこと", activity?.whatIDid],
+    ["変化・成果", activity?.whatChanged],
+    ["難しかったこと", activity?.whatWasDifficult],
+    ["プロフィールの役割", profile?.role],
+    ["成長の目標", profile?.growthGoal],
+    ["注力しているスキル", focusSkills.join("、")],
+  ].filter(([, value]) => Boolean(value));
+
+  return <div className="submission-review">
+    <p className="form-help">活動の記録、登録済みプロフィール、これまでに答えた確認事項だけをAIへ送ります。AIの提案は自動で証拠になりません。</p>
+    {details.length > 0 ? <dl className="submission-review__list">{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl> : <p className="empty-copy">送信内容を読み取れませんでした。詳細データを確認してください。</p>}
+    {(parsed?.interviewAnswers?.length ?? 0) > 0 && <p className="form-help">過去の確認回答: {parsed!.interviewAnswers!.length}件</p>}
+    <details className="submission-review__details"><summary>技術的な送信データを表示（JSON）</summary><pre>{payload}</pre></details>
+  </div>;
 }
 
 function QuestionCard({ question, onAnswer, pending, error }: { question: InterviewQuestionDto; onAnswer: (state: "answered" | "unknown" | "skipped" | "deferred", answer: string | null) => void; pending: boolean; error: unknown }) {
